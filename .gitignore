@@ -36,3 +36,6 @@ env/
 # Test outputs
 test_outputs/
 outputs/
+
+# Internal development files
+roadmap.md
