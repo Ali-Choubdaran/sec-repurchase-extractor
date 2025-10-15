@@ -325,6 +325,144 @@ class RepurchaseExtractor:
         # Preprocess and set the table
         self.table = preprocess_html(table)
     
+
+
+    def _preprocess_table(self):
+        """Preprocess the table"""
+        # Process the identified table
+        df = pd.read_html(str(self.table))[0]
+        
+           
+        # Check if all columns and rows are integers and reset index/columns if true
+        df=reset_integer_index_and_columns(df)
+
+        
+        # Check if the columns need to be reset (by verifying if the current names are not already integers)
+        expected_columns = list(range(df.shape[1]))
+        
+        if list(df.columns) != expected_columns:
+            stripped_columns = [re.sub(r'\.\d+', '', col) for col in df.columns]
+            # Create a new DataFrame row from the stripped column names
+            new_row = pd.DataFrame([stripped_columns], columns=expected_columns)
+
+            # Reset the column names to integer sequence
+            df.columns = expected_columns
+
+            # Concatenate the new row with the original df
+            df = pd.concat([new_row, df], ignore_index=True)
+            df.replace("", np.nan, inplace=True)
+            
+            # Identify columns with the same name and check for all NaN values
+            for name in set(stripped_columns):
+                
+                cols_to_check = [idx for idx, col in enumerate(stripped_columns) if col == name]
+                all_nan_columns = [col for col in cols_to_check if df.loc[1:, col].isna().all()]
+                non_nan_columns = [col for col in cols_to_check if not df.loc[1:, col].isna().all()]
+                
+            
+                # Drop all NaN columns except one (if multiple are all NaN)
+                if len(non_nan_columns)>0 and len(all_nan_columns) > 0:
+                    df.drop(all_nan_columns, axis=1, inplace=True)
+                    
+
+                if len(non_nan_columns)==0 and len(all_nan_columns) > 1:
+                    # Drop all but one
+                    df.drop(all_nan_columns[1:], axis=1, inplace=True)
+        
+        # Check if all columns and rows are integers and reset index/columns if true
+        df=reset_integer_index_and_columns(df)
+        
+        self.flow_dic['df_st1_shape0']=df.shape[0]
+        self.flow_dic['df_st1_shape1']=df.shape[1]
+        
+        df_cop_in=df.copy()
+
+        try:
+            df=df.map(convert_to_string_if_not_nan)
+        except Exception as e:
+            self.flow_dic['error_term_re']="convert_to_string_if_not_nan"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"convert_to_string_if_not_nan: {e}")
+            
+        try:
+            df=df.map(unicode_text_cleaner)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="unicode_text_cleaner"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"unicode_text_cleaner: {e}")
+        
+        
+        try:
+            df=df.map(convert_and_parenthesize_superscripts)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="convert_and_parenthesize_superscripts"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"convert_and_parenthesize_superscripts: {e}")
+        
+        
+        try:
+            df=df.map(bracket_to_paranth)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="bracket_to_paranth"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"bracket_to_paranth: {e}")
+        
+        try:
+            df=df.map(check_issuer_in_text)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="check_issuer_in_text"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"check_issuer_in_text: {e}")
+        
+        # Replace empty strings with NaN
+        df.replace("", np.nan, inplace=True)
+        # Remove all NaN columns and rows
+        df = df.dropna(axis=1, how='all')
+        df = df.dropna(axis=0, how='all')
+        
+        # Check if all columns and rows are integers and reset index/columns if true
+        df=reset_integer_index_and_columns(df)
+
+        
+
+        try:
+            df=df.map(para_whitespace_stripper)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="para_whitespace_stripper"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"para_whitespace_stripper: {e}")
+        
+
+        
+        # Assuming df is your original DataFrame and check_healthy_parentheses is defined as above
+        
+
+        try:
+            
+            df=df.map(three_zero_to_thousand)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="three_zero_to_thousand"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"three_zero_to_thousand: {e}")
+
+        try:
+            
+            df=df.map(dollar_sign_to_dollar_word)
+        
+        except Exception as e:
+            self.flow_dic['error_term_re']="dollar_sign_to_dollar_word"
+            self.flow_dic['error_term_re_e']=str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"dollar_sign_to_dollar_word: {e}")
+
+        return df
+
+
     def extract(self):
         """Main extraction method - orchestrates the entire process"""
         try:
@@ -336,160 +474,10 @@ class RepurchaseExtractor:
             
             # Identify and extract the table
             self._identify_and_extract_table()
-            
-            # Process the identified table
-            df = pd.read_html(str(self.table))[0]
-        
-           
-            # Check if all columns and rows are integers and reset index/columns if true
-            df=reset_integer_index_and_columns(df)
 
-           
-            # Check if the columns need to be reset (by verifying if the current names are not already integers)
-            expected_columns = list(range(df.shape[1]))
+            df=self._preprocess_table()
             
-            if list(df.columns) != expected_columns:
-                stripped_columns = [re.sub(r'\.\d+', '', col) for col in df.columns]
-                # Create a new DataFrame row from the stripped column names
-                new_row = pd.DataFrame([stripped_columns], columns=expected_columns)
-    
-                # Reset the column names to integer sequence
-                df.columns = expected_columns
-    
-                # Concatenate the new row with the original df
-                df = pd.concat([new_row, df], ignore_index=True)
-                df.replace("", np.nan, inplace=True)
-               
-                # Identify columns with the same name and check for all NaN values
-                for name in set(stripped_columns):
-                    
-                    cols_to_check = [idx for idx, col in enumerate(stripped_columns) if col == name]
-                    all_nan_columns = [col for col in cols_to_check if df.loc[1:, col].isna().all()]
-                    non_nan_columns = [col for col in cols_to_check if not df.loc[1:, col].isna().all()]
-                   
-                
-                    # Drop all NaN columns except one (if multiple are all NaN)
-                    if len(non_nan_columns)>0 and len(all_nan_columns) > 0:
-                        df.drop(all_nan_columns, axis=1, inplace=True)
-                        
-
-                    if len(non_nan_columns)==0 and len(all_nan_columns) > 1:
-                        # Drop all but one
-                        df.drop(all_nan_columns[1:], axis=1, inplace=True)
-            
-            # Check if all columns and rows are integers and reset index/columns if true
-            df=reset_integer_index_and_columns(df)
-            
-            self.flow_dic['df_st1_shape0']=df.shape[0]
-            self.flow_dic['df_st1_shape1']=df.shape[1]
-            
-            df_cop_in=df.copy()
-            
-            
-
-            
-            try:
-                df=df.map(convert_to_string_if_not_nan)
-            except Exception as e:
-                self.flow_dic['error_term_re']="convert_to_string_if_not_nan"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-                
-            try:
-                df=df.map(unicode_text_cleaner)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="unicode_text_cleaner"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            
-
-            
-            
-            
-            try:
-                df=df.map(convert_and_parenthesize_superscripts)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="convert_and_parenthesize_superscripts"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            
-            try:
-                df=df.map(bracket_to_paranth)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="bracket_to_paranth"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            try:
-               df=df.map(check_issuer_in_text)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="check_issuer_in_text"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            # Replace empty strings with NaN
-            df.replace("", np.nan, inplace=True)
-            # Remove all NaN columns and rows
-            df = df.dropna(axis=1, how='all')
-            df = df.dropna(axis=0, how='all')
-            
-            # Check if all columns and rows are integers and reset index/columns if true
-            df=reset_integer_index_and_columns(df)
-
-            
-
-            try:
-               df=df.map(para_whitespace_stripper)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="para_whitespace_stripper"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            
-
-            
-            
-            
-            
-            
-            # Assuming df is your original DataFrame and check_healthy_parentheses is defined as above
-            
-            
-
-               
-              
-
-            
-            try:
-              
-               df=df.map(three_zero_to_thousand)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="three_zero_to_thousand"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            
-            
-            
-            try:
-              
-               df=df.map(dollar_sign_to_dollar_word)
-            
-            except Exception as e:
-                self.flow_dic['error_term_re']="dollar_sign_to_dollar_word"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-
-
-
+          
             period_col_span=[]
             period_col_start_cand=None
             period_col_end_cand=None
@@ -519,12 +507,7 @@ class RepurchaseExtractor:
             period_col_start_cand=min(period_col_span)
             period_col_end_cand=max(period_col_span)
             
-            
-            
-            
-            
-
-            
+         
             
             try:
               
@@ -1368,11 +1351,7 @@ class RepurchaseExtractor:
             # If there's exactly one column left without a role, assign 'tot' to it
             if len(tot_cols) == 1:
                 df_col_roles.at[1, tot_cols[0]] = 'tot'
-            
-            
-           
-            
-            
+
             try:
               
               cand_footnotes_in_text_after = extract_potential_footnotes(self.soup_after)
@@ -1382,12 +1361,7 @@ class RepurchaseExtractor:
                 self.flow_dic['error_term_re_e']=str(e)
                 return (self.flow_dic,self.df_output2)
             
-            
-            
-            
-
-            
-            
+ 
             
             
             try:
@@ -1399,10 +1373,7 @@ class RepurchaseExtractor:
                 self.flow_dic['error_term_re']="out_paranth_footnote_into_paranth"
                 self.flow_dic['error_term_re_e']=str(e)
                 return (self.flow_dic,self.df_output2)
-            
-           
 
-            
             try:
               
                
@@ -1912,9 +1883,6 @@ class RepurchaseExtractor:
                             whole_date_processed=whole_date_processed[bias:]
                     
                             
-                    
-                            
-                    
                             
                             first_month=month_to_number(whole_date_processed[0])
                             second_month=month_to_number(whole_date_processed[0])
@@ -1937,10 +1905,7 @@ class RepurchaseExtractor:
                             whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                             whole_date_processed=whole_date_processed[bias:]
                     
-                            
-                    
-                            
-                    
+                
                             
                             first_month=month_to_number(whole_date_processed[0])
                             second_month=month_to_number(whole_date_processed[0])
@@ -2050,13 +2015,7 @@ class RepurchaseExtractor:
                             whole_date=monthly_interval_dates[i]
                             whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                             whole_date_processed=whole_date_processed[bias:]
-                            
-                    
-                            
-                    
-                            
-                    
-                            
+
                             first_month=month_to_number(whole_date_processed[0])
                             second_month=month_to_number(whole_date_processed[2])
                             
@@ -2215,9 +2174,7 @@ class RepurchaseExtractor:
                                 whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                                 whole_date_processed=whole_date_processed[bias:]
                         
-                                
-                        
-                                
+         
                                 first_day=int(whole_date_processed[1])
                                 second_day=int(whole_date_processed[2])
                                 
@@ -2292,10 +2249,7 @@ class RepurchaseExtractor:
                                 whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                                 whole_date_processed=whole_date_processed[bias:]
                         
-                                
-                        
-                                
-                        
+      
                                 
                                 first_month=month_to_number(whole_date_processed[0])
                                 second_month=month_to_number(whole_date_processed[0])
@@ -2318,11 +2272,7 @@ class RepurchaseExtractor:
                             whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                             whole_date_processed=whole_date_processed[bias:]
                     
-                            
-                    
-                            
-                    
-                            
+
                             first_month=month_to_number(whole_date_processed[0])
                             second_month=month_to_number(whole_date_processed[0])
                             
@@ -2342,12 +2292,7 @@ class RepurchaseExtractor:
                                 whole_date=monthly_interval_dates[i]
                                 whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                                 whole_date_processed=whole_date_processed[bias:]
-                        
-                                
-                        
-                                
-                        
-                                
+                 
                                 first_month=month_to_number(whole_date_processed[0])
                                 second_month=month_to_number(whole_date_processed[0])
                                 
@@ -2370,12 +2315,7 @@ class RepurchaseExtractor:
                                 whole_date_processed=filter_specific_words(whole_date,pattern_interval)
                                 whole_date_processed=whole_date_processed[bias:]
                                 
-                        
-                                
-                        
-                                
-                        
-                                
+            
                                 first_month=month_to_number(whole_date_processed[0])
                                 second_month=month_to_number(whole_date_processed[2])
                                 
@@ -2523,31 +2463,22 @@ class RepurchaseExtractor:
             # Reset index after dropping rows
             df_cut2.reset_index(drop=True, inplace=True)
             
-            
-            
-                        
                         
             # Create df_cut from the original DataFrame df by slicing from the first row to end_row
             df_cut = df.iloc[:end_row + 1]  # end_row + 1 to include end_row in the slice
             
-            
-            
+
             df_cut_lower=df_cut.map(ends_text_strip)
                 
             df_cut_lower_unit=df_cut_lower.map( unit_extractor)
             
             
             df_cut_lower_unit_translated=df_cut_lower_unit.map(unit_analyser)
-            
-            
 
-            
             df_dollar=df_cut.map(dollar_extractor)
-            
-            
+
             df_identify = pd.DataFrame(np.nan, index=[0, 1, 2], columns=df.columns)
-                
-                
+   
             # Assuming df_col_roles already exists and has the roles in its second row
             
             # Fill the first row of df_identify
@@ -2556,9 +2487,7 @@ class RepurchaseExtractor:
             
             df_identify.iloc[1, :] = df_dollar.max(axis=0)
             
-            
-            
-            
+
             # Explicitly set the data type for the 'values' column to 'object' to handle list entries
             df_unit_source_stat = pd.DataFrame({
                 'source_dum': [0, 0, 0, 0],
@@ -2572,19 +2501,13 @@ class RepurchaseExtractor:
             }, index=['table', 'above', 'top', 'after']).astype({'values': 'object','values_type':'object'})  # Set 'values' as object type
             
             df_unit_source_stat.index.name = 'source'
-            
-            
-            
-            
-            
-            
+
+   
             # Initialize controlling variables
             unit_in_table_exist = 0
             unique_unit_type_in_table_dum = None
             unique_unit_type_in_table = None
-            
-            
-            
+
             potential_source_of_unit={}
             unit_overwrite=0
             float_unit_contradiction=0
@@ -2740,10 +2663,6 @@ class RepurchaseExtractor:
             
             
 
-            
-            
-
-            
             y_in_str_above_units=0
             above_unit_overwrite=0
             
@@ -2858,9 +2777,7 @@ class RepurchaseExtractor:
                 if 0 in units_in_after_analysed_type:
                     df_unit_source_stat.loc['after', 'error'].append('float_type')
                     
-                    
                 
-                    
                 
                 if len(units_in_after_analysed)>2:
                     df_unit_source_stat.loc['after', 'error'].append('too_many_str_units')
@@ -3283,9 +3200,7 @@ class RepurchaseExtractor:
                                 for idx in [1,2,3,4]:
                                     if pd.isna(df_output.loc[df_output['id'] == idx, 'table_id']).all():
                                         df_output.loc[df_output['id'] == idx, 'table_id'] = -1
-                                       
-                            
-                                
+           
                             if sc2-sc1>=2:
                                 df_output=df_cut2.copy()
                                 df_output['table_id']=np.nan
@@ -3305,9 +3220,7 @@ class RepurchaseExtractor:
                                     if pd.isna(df_output.loc[df_output['id'] == idx, 'table_id']).all():
                                         df_output.loc[df_output['id'] == idx, 'table_id'] = -1
                                         
-                            
-                        
-                        
+  
             if df_output.shape[0]==0:
                 self.flow_dic['self_term_re']='df_output_not_created' 
                 return (self.flow_dic,self.df_output2)
@@ -3409,10 +3322,7 @@ class RepurchaseExtractor:
                     self.flow_dic['error_term_re_e']=str(e)
                     return (self.flow_dic,self.df_output2)
                 
-                
-               
-                
-                
+
             
                 # Reassign the processed data back to the original DataFrame's subset
                 df_output.iloc[1:, 1:] = processed_subset
@@ -3486,9 +3396,6 @@ class RepurchaseExtractor:
             self.flow_dic['error_term_re_e']=str(e)
             return (self.flow_dic,self.df_output2)
     
-
-
-
 
 
 # Test:
