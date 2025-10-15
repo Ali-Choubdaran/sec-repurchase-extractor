@@ -3,7 +3,7 @@
 """
 Created on Sun Jun 30 19:00:06 2024
 
-@author: a.choubdaran-varnosfaderani
+@author: SEC Repurchase Data Extractor Team
 """
 
 
