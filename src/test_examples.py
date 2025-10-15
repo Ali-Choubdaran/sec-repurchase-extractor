@@ -26,7 +26,8 @@ def test_all_examples():
         print(f"{'='*80}")
         
         try:
-            result = RepurchaseExtractor(url)
+            extractor = RepurchaseExtractor(url)
+            result = extractor.extract()
             flow_dic, df_output = result
             
             # Print flow_dic (metadata) in a readable format

@@ -35,26 +35,30 @@ load_dotenv()
 
 
 
-def RepurchaseExtractor(file_link_filing):
-        
+class RepurchaseExtractor:
+    def __init__(self, file_link_filing):
+        self.file_link_filing = file_link_filing
+        self.flow_dic = {}
+        self.df_output2 = pd.DataFrame()
+    
+    def extract(self):
+        """Main extraction method - orchestrates the entire process"""
         try:
             
-            flow_dic={}
-            flow_dic['self_term_re']=np.nan
-            flow_dic['error_term_re_e']=np.nan
-            df_output2=pd.DataFrame()
+            self.flow_dic['self_term_re']=np.nan
+            self.flow_dic['error_term_re_e']=np.nan
 
             
-            html_content = fetch_repurchases_html_section(file_link_filing)
-            period_report_str=fetch_period_report_date(file_link_filing)
+            html_content = fetch_repurchases_html_section(self.file_link_filing)
+            period_report_str=fetch_period_report_date(self.file_link_filing)
             period_report_date= pd.to_datetime(period_report_str, format='%Y-%m-%d')
             period_year=period_report_date.year
            
 
             
             if len(html_content)==0:
-                flow_dic['self_term_re']='len_html_zero'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='len_html_zero'
+                return (self.flow_dic,self.df_output2)
                 
             
             typical_words_list = [
@@ -73,12 +77,12 @@ def RepurchaseExtractor(file_link_filing):
             
             try:
                 soup_org2_word_list=white_word_maker(soup_org2_text)
-                #flow_dic['soup_org2_word_num']=len(soup_org2_word_list)
+                #self.flow_dic['soup_org2_word_num']=len(soup_org2_word_list)
                 
             except Exception as e:
-                flow_dic['error_term_re']="white_word_maker_soup_org2_word_num"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="white_word_maker_soup_org2_word_num"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
             
@@ -87,11 +91,11 @@ def RepurchaseExtractor(file_link_filing):
             
             num_tables = len(tables)
             
-            flow_dic['num_tables']=num_tables
+            self.flow_dic['num_tables']=num_tables
             
             if num_tables==0:
-                flow_dic['self_term_re']='num_tables_zero'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='num_tables_zero'
+                return (self.flow_dic,self.df_output2)
             
             # table detection, start: 
             
@@ -222,13 +226,13 @@ def RepurchaseExtractor(file_link_filing):
             # Print the indexes and handle different scenarios
             if not table_indexes:  # Check if list is empty
                 
-                flow_dic['self_term_re']='no_table_of_interest_found'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='no_table_of_interest_found'
+                return (self.flow_dic,self.df_output2)
                 
             elif len(table_indexes) == 1:  # Check if there is only one table
                 table_id = table_indexes[0]
-                flow_dic['table_of_interest_id']=table_id
-                flow_dic['table_of_interest_sit']='unique'
+                self.flow_dic['table_of_interest_id']=table_id
+                self.flow_dic['table_of_interest_sit']='unique'
             else:  # Multiple tables found, need to find the one with the maximum word_inter_len
                 # Retrieve the word_inter_len values for the filtered tables
                 max_word_inter_len = filtered_tables['word_inter_len'].max()
@@ -237,11 +241,11 @@ def RepurchaseExtractor(file_link_filing):
                 # Check if the first maximum is 30% or more bigger than the second maximum
                 if max_word_inter_len >= 1.3 * second_max_word_inter_len:
                     table_id = filtered_tables[filtered_tables['word_inter_len'] == max_word_inter_len].index[0]
-                    flow_dic['table_of_interest_id']=table_id
-                    flow_dic['table_of_interest_sit']='majority_of_word_inter_len'
+                    self.flow_dic['table_of_interest_id']=table_id
+                    self.flow_dic['table_of_interest_sit']='majority_of_word_inter_len'
                 else:
-                    flow_dic['self_term_re']='multiple_tables_of_interest'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='multiple_tables_of_interest'
+                    return (self.flow_dic,self.df_output2)
             
             # Optional: Print the table_id or further process it
             if table_id is not None:
@@ -272,7 +276,7 @@ def RepurchaseExtractor(file_link_filing):
             other_loc = None
             
             # Check the number of other significant tables
-            flow_dic['num_other_sig_tables']=len(other_table_indexes)
+            self.flow_dic['num_other_sig_tables']=len(other_table_indexes)
             
             if len(other_table_indexes) == 0:
                 print("No other significant table was found.")
@@ -283,14 +287,14 @@ def RepurchaseExtractor(file_link_filing):
                 if min_other_table_indexes>table_id:
                     other_id=min_other_table_indexes
                 else:
-                    flow_dic['self_term_re']='multiple_other_sig_tables'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='multiple_other_sig_tables'
+                    return (self.flow_dic,self.df_output2)
                 
                 
             else:
                 # There is exactly one other significant table
                 other_id = other_table_indexes[0]
-                flow_dic['unique_other_sig_table_id']=other_id
+                self.flow_dic['unique_other_sig_table_id']=other_id
                 other_dum = 1
                 # Determine the relative location of this table compared to our table_id
                 if other_id < table_id:
@@ -328,23 +332,23 @@ def RepurchaseExtractor(file_link_filing):
                         other_table_end = other_table_start + len(table_html)
                     else:
                         print("No match found for the table in the HTML content.")
-                        flow_dic['self_term_re']='start_match_of_sig_wasnt_found'
-                        return (flow_dic,df_output2)
+                        self.flow_dic['self_term_re']='start_match_of_sig_wasnt_found'
+                        return (self.flow_dic,self.df_output2)
                         
                 except Exception as e:
                     # Handle cases where the table might not be found or the regex search fails
                     print("Error finding the table:", e)
-                    flow_dic['error_term_re']="Error_finding_the_sig_table"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="Error_finding_the_sig_table"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 # Optionally, print the start and end positions
                 if other_table_start is not None and other_table_end is not None:
                     print(f"Start of the other table: {other_table_start}, End of the other table: {other_table_end}")
                 else:
                     print("Failed to locate the other table in the document.")
-                    flow_dic['self_term_re']='failed_to_locate_sig_table'
-                    return (flow_dic,df_output2) 
+                    self.flow_dic['self_term_re']='failed_to_locate_sig_table'
+                    return (self.flow_dic,self.df_output2) 
             
             
             
@@ -400,22 +404,22 @@ def RepurchaseExtractor(file_link_filing):
                     table_end = table_start + len(table_html)
                 else:
                     print("No match found for the table in the HTML content.")
-                    flow_dic['self_term_re']='start_match_of_table_wasnt_found'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='start_match_of_table_wasnt_found'
+                    return (self.flow_dic,self.df_output2)
             except Exception as e:
                 # Handle cases where the table might not be found or the regex search fails
                 print("Error finding the table:", e)
-                flow_dic['error_term_re']="Error_finding_the_table"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="Error_finding_the_table"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             # Optionally, print the start and end positions
             if table_start is not None and table_end is not None:
                 print(f"Start of the table: {table_start}, End of the table: {table_end}")
             else:
                 print("Failed to locate the table in the document.")
-                flow_dic['self_term_re']='failed_to_locate_table'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='failed_to_locate_table'
+                return (self.flow_dic,self.df_output2)
             
             parser_label='html.parser'
             text_before_table =soup_str[: table_start]
@@ -473,8 +477,8 @@ def RepurchaseExtractor(file_link_filing):
             # Check if all columns and rows are integers and reset index/columns if true
             df=reset_integer_index_and_columns(df)
             
-            flow_dic['df_st1_shape0']=df.shape[0]
-            flow_dic['df_st1_shape1']=df.shape[1]
+            self.flow_dic['df_st1_shape0']=df.shape[0]
+            self.flow_dic['df_st1_shape1']=df.shape[1]
             
             df_cop_in=df.copy()
             
@@ -484,17 +488,17 @@ def RepurchaseExtractor(file_link_filing):
             try:
                 df=df.map(convert_to_string_if_not_nan)
             except Exception as e:
-                flow_dic['error_term_re']="convert_to_string_if_not_nan"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="convert_to_string_if_not_nan"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
                 
             try:
                 df=df.map(unicode_text_cleaner)
             
             except Exception as e:
-                flow_dic['error_term_re']="unicode_text_cleaner"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="unicode_text_cleaner"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
 
@@ -505,26 +509,26 @@ def RepurchaseExtractor(file_link_filing):
                 df=df.map(convert_and_parenthesize_superscripts)
             
             except Exception as e:
-                flow_dic['error_term_re']="convert_and_parenthesize_superscripts"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="convert_and_parenthesize_superscripts"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
             try:
                 df=df.map(bracket_to_paranth)
             
             except Exception as e:
-                flow_dic['error_term_re']="bracket_to_paranth"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="bracket_to_paranth"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             try:
                df=df.map(check_issuer_in_text)
             
             except Exception as e:
-                flow_dic['error_term_re']="check_issuer_in_text"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="check_issuer_in_text"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             # Replace empty strings with NaN
             df.replace("", np.nan, inplace=True)
@@ -541,9 +545,9 @@ def RepurchaseExtractor(file_link_filing):
                df=df.map(para_whitespace_stripper)
             
             except Exception as e:
-                flow_dic['error_term_re']="para_whitespace_stripper"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="para_whitespace_stripper"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
 
@@ -565,9 +569,9 @@ def RepurchaseExtractor(file_link_filing):
                df=df.map(three_zero_to_thousand)
             
             except Exception as e:
-                flow_dic['error_term_re']="three_zero_to_thousand"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="three_zero_to_thousand"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
             
@@ -577,9 +581,9 @@ def RepurchaseExtractor(file_link_filing):
                df=df.map(dollar_sign_to_dollar_word)
             
             except Exception as e:
-                flow_dic['error_term_re']="dollar_sign_to_dollar_word"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="dollar_sign_to_dollar_word"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
 
 
 
@@ -624,9 +628,9 @@ def RepurchaseExtractor(file_link_filing):
               df_reduced=df.map(text_reducer)
             
             except Exception as e:
-                flow_dic['error_term_re']="text_reducer"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="text_reducer"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
             
@@ -748,7 +752,7 @@ def RepurchaseExtractor(file_link_filing):
                 else:
                     print("No row has exactly four unique values.")
             
-            flow_dic['first_reduced_stat']=reduced_stat
+            self.flow_dic['first_reduced_stat']=reduced_stat
             
             if reduced_stat < 3:
                 
@@ -897,11 +901,11 @@ def RepurchaseExtractor(file_link_filing):
                 
 
             
-            flow_dic['second_reduced_stat']=reduced_stat
+            self.flow_dic['second_reduced_stat']=reduced_stat
             
             if reduced_stat<3:
-                flow_dic['self_term_re']='reduced_less_than_3'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='reduced_less_than_3'
+                return (self.flow_dic,self.df_output2)
 
             
             if reduced_stat==3:
@@ -1117,9 +1121,9 @@ def RepurchaseExtractor(file_link_filing):
                df=df.map(para_whitespace_stripper)
             
             except Exception as e:
-                flow_dic['error_term_re']="para_whitespace_stripper"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="para_whitespace_stripper"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
 
             
@@ -1318,9 +1322,9 @@ def RepurchaseExtractor(file_link_filing):
                df_health_parenth = df.map(check_healthy_parentheses)
             
             except Exception as e:
-                flow_dic['error_term_re']="check_healthy_parentheses"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2) 
+                self.flow_dic['error_term_re']="check_healthy_parentheses"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2) 
             
             # Calculate the minimum value in df_health_parenth
             min_value = df_health_parenth.min().min()  # This traverses the entire DataFrame
@@ -1328,8 +1332,8 @@ def RepurchaseExtractor(file_link_filing):
             # Check for unhealthy parentheses
             if min_value == -1:
                 print("Unhealthy parenthesis is found.")
-                flow_dic['self_term_re']='Unhealthy_parenthesis_found'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='Unhealthy_parenthesis_found'
+                return (self.flow_dic,self.df_output2)
             else:
                 print("No unhealthy parenthesis found.")
             
@@ -1342,9 +1346,9 @@ def RepurchaseExtractor(file_link_filing):
               df_reduced2=df.map(text_reducer2)
             
             except Exception as e:
-                flow_dic['error_term_re']="text_reducer2"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2) 
+                self.flow_dic['error_term_re']="text_reducer2"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2) 
             
             
             
@@ -1358,9 +1362,9 @@ def RepurchaseExtractor(file_link_filing):
               df_reduced2_words=df_reduced2.map(white_word_maker)
             
             except Exception as e:
-                flow_dic['error_term_re']="white_word_maker"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="white_word_maker"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
             
@@ -1471,9 +1475,9 @@ def RepurchaseExtractor(file_link_filing):
               cand_footnotes_in_text_after = extract_potential_footnotes(soup_after)
             
             except Exception as e:
-                flow_dic['error_term_re']="extract_potential_footnotes"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="extract_potential_footnotes"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
             
             
@@ -1489,9 +1493,9 @@ def RepurchaseExtractor(file_link_filing):
                df.iloc[0, 1:] = df.iloc[0, 1:].apply(lambda x: out_paranth_footnote_into_paranth(x, cand_footnotes_in_text_after))
             
             except Exception as e:
-                flow_dic['error_term_re']="out_paranth_footnote_into_paranth"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="out_paranth_footnote_into_paranth"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
            
 
@@ -1502,9 +1506,9 @@ def RepurchaseExtractor(file_link_filing):
                df_footnotes = df.applymap(lambda x: table_footnote_extractor(x, cand_footnotes_in_text_after))
             
             except Exception as e:
-                flow_dic['error_term_re']="table_footnote_extractor"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="table_footnote_extractor"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
 
             # Define the broken row indicators
@@ -1538,9 +1542,9 @@ def RepurchaseExtractor(file_link_filing):
                
             
             except Exception as e:
-                flow_dic['error_term_re']="ends_text_strip"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="ends_text_strip"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
 
             try:
@@ -1550,9 +1554,9 @@ def RepurchaseExtractor(file_link_filing):
                df_words2 = df_lower.map(convert_to_pattern_words)
             
             except Exception as e:
-                flow_dic['error_term_re']="convert_to_pattern_words"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="convert_to_pattern_words"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
             
 
             try:
@@ -1561,9 +1565,9 @@ def RepurchaseExtractor(file_link_filing):
                df_patterns=df_lower.map(convert_to_pattern) 
             
             except Exception as e:
-                flow_dic['error_term_re']="convert_to_pattern_words"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="convert_to_pattern_words"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
         
 
             interval_special=0
@@ -1667,10 +1671,10 @@ def RepurchaseExtractor(file_link_filing):
                 selected_monthly_interval_rows = monthly_interval_rows[index_of_smallest_list]
                 selected_monthly_interval_pattern = monthly_interval_patterns[index_of_smallest_list]
                 
-            flow_dic['num_monthly_intervals']=  len(selected_monthly_interval_rows)  
+            self.flow_dic['num_monthly_intervals']=  len(selected_monthly_interval_rows)  
             if len(selected_monthly_interval_rows)!=3:
-                flow_dic['self_term_re']='not_3_monthly_intervals'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='not_3_monthly_intervals'
+                return (self.flow_dic,self.df_output2)
            
             
             
@@ -1772,9 +1776,9 @@ def RepurchaseExtractor(file_link_filing):
 
         
             if tot_row is None:
-                flow_dic['tot_row_found']=0
+                self.flow_dic['tot_row_found']=0
             else:
-                flow_dic['tot_row_found']=1
+                self.flow_dic['tot_row_found']=1
             
            
             # Define the spans for the first, second, and third months.
@@ -2250,8 +2254,8 @@ def RepurchaseExtractor(file_link_filing):
                             
                             
                 if len(monthly_interval_dates_converted)!=3:
-                    flow_dic['self_term_re']='monthly_interval_dates_converted_issue'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='monthly_interval_dates_converted_issue'
+                    return (self.flow_dic,self.df_output2)
         
         
          
@@ -2513,8 +2517,8 @@ def RepurchaseExtractor(file_link_filing):
                                 
                                 
                 if len(monthly_interval_dates_converted)!=3:
-                    flow_dic['self_term_re']='monthly_interval_dates_converted_issue'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='monthly_interval_dates_converted_issue'
+                    return (self.flow_dic,self.df_output2)
             
         
              
@@ -3148,9 +3152,9 @@ def RepurchaseExtractor(file_link_filing):
             try:
                 df_cut2=df_cut2.map(dollar_dropper)
             except Exception as e:
-                flow_dic['error_term_re']="dollar_dropper"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="dollar_dropper"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
                 
             unit_healthy=np.nan
             df_output=pd.DataFrame()
@@ -3158,8 +3162,8 @@ def RepurchaseExtractor(file_link_filing):
             roles = df_identify.iloc[0, :5].to_dict()
             
             if len(roles)!=5:
-                flow_dic['self_term_re']='not_all_roles_found'
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='not_all_roles_found'
+                return (self.flow_dic,self.df_output2)
             
             rename_dict = {int(k): v for k, v in roles.items()}
             
@@ -3402,8 +3406,8 @@ def RepurchaseExtractor(file_link_filing):
                         
                         
             if df_output.shape[0]==0:
-                flow_dic['self_term_re']='df_output_not_created' 
-                return (flow_dic,df_output2)
+                self.flow_dic['self_term_re']='df_output_not_created' 
+                return (self.flow_dic,self.df_output2)
             
                
             if df_output.shape[0]>0:
@@ -3462,9 +3466,9 @@ def RepurchaseExtractor(file_link_filing):
                 try:
                     df_output_pos_footnote=df_output.map(extract_single_digit_or_letter_in_parenth)
                 except Exception as e:
-                    flow_dic['error_term_re']="extract_single_digit_or_letter_in_parenth"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="extract_single_digit_or_letter_in_parenth"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                
                 
@@ -3473,39 +3477,39 @@ def RepurchaseExtractor(file_link_filing):
                 try:
                     processed_subset = subset.applymap(single_digit_or_letter_in_parenth_remover)
                 except Exception as e:
-                    flow_dic['error_term_re']="single_digit_or_letter_in_parenth_remover"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="single_digit_or_letter_in_parenth_remover"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 try:
                     processed_subset = processed_subset.applymap(general_parenth_remover)
                 except Exception as e:
-                    flow_dic['error_term_re']="general_parenth_remover"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="general_parenth_remover"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 
                 try:
                     processed_subset = processed_subset.applymap(unit_remover)
                 except Exception as e:
-                    flow_dic['error_term_re']="unit_remover"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="unit_remover"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 try:
                     processed_subset = processed_subset.applymap(star_remover)
                 except Exception as e:
-                    flow_dic['error_term_re']="star_remover"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="star_remover"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 
                 try:
                     processed_subset = processed_subset.applymap(other_missing_creater)
                 except Exception as e:
-                    flow_dic['error_term_re']="other_missing_creater"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="other_missing_creater"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 
                
@@ -3516,23 +3520,23 @@ def RepurchaseExtractor(file_link_filing):
                 df_output.iloc[1:, 1:] = processed_subset
             
                 try:
-                    df_output2=df_output.map(convert_to_number)
+                    self.df_output2=df_output.map(convert_to_number)
                 except Exception as e:
-                    flow_dic['error_term_re']="convert_to_number"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="convert_to_number"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                 
                 
-                subset = df_output2.iloc[1:, 1:]  
+                subset = self.df_output2.iloc[1:, 1:]  
                 try:
                     processed_subset = subset.applymap(inner_cell_health_checker)
                 except Exception as e:
-                    flow_dic['error_term_re']="inner_cell_health_checker"
-                    flow_dic['error_term_re_e']=str(e)
-                    return (flow_dic,df_output2)
+                    self.flow_dic['error_term_re']="inner_cell_health_checker"
+                    self.flow_dic['error_term_re_e']=str(e)
+                    return (self.flow_dic,self.df_output2)
                
                 all_inner_cells_are_healthy = 1 if processed_subset.all().all() else 0
-                flow_dic['inner_cell_health']=all_inner_cells_are_healthy
+                self.flow_dic['inner_cell_health']=all_inner_cells_are_healthy
                 l=list(df_unit_source_stat['error'])
                 ll=[len(x) for x in l]
                 s=set(ll)
@@ -3545,20 +3549,20 @@ def RepurchaseExtractor(file_link_filing):
                 else:
                     unit_healthy=0
                 
-                flow_dic['unit_source']=unit_source
-                flow_dic['unit_healthy']=unit_healthy
+                self.flow_dic['unit_source']=unit_source
+                self.flow_dic['unit_healthy']=unit_healthy
                 
                 
                 if unit_healthy==0:
-                    flow_dic['self_term_re']='unhealthy_unit'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='unhealthy_unit'
+                    return (self.flow_dic,self.df_output2)
                 if all_inner_cells_are_healthy==0:
-                    flow_dic['self_term_re']='unhealthy_inner_cell'
-                    return (flow_dic,df_output2)
+                    self.flow_dic['self_term_re']='unhealthy_inner_cell'
+                    return (self.flow_dic,self.df_output2)
                     
-                # df_output2['query_id']=row_query_id
+                # self.df_output2['query_id']=row_query_id
                 
-                new_row = pd.Series(np.nan, index=df_output2.columns)
+                new_row = pd.Series(np.nan, index=self.df_output2.columns)
                 for col, role in roles.items():
                     if role == 'period':
                         new_row[col] = 0
@@ -3571,16 +3575,16 @@ def RepurchaseExtractor(file_link_filing):
                     elif role == 'remain':
                         new_row[col] = 4
                     
-                    df_output2.loc[-3] = new_row
-                return (flow_dic,df_output2)
+                    self.df_output2.loc[-3] = new_row
+                return (self.flow_dic,self.df_output2)
                 
 
                 
          
         except Exception as e:
-                flow_dic['error_term_re']="general"
-                flow_dic['error_term_re_e']=str(e)
-                return (flow_dic,df_output2)
+                self.flow_dic['error_term_re']="general"
+                self.flow_dic['error_term_re_e']=str(e)
+                return (self.flow_dic,self.df_output2)
     
 
 
