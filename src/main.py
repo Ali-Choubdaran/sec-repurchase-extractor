@@ -33,6 +33,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+class ExtractionError(Exception):
+    """Custom exception for extraction flow control"""
+    def __init__(self, flow_dic, df_output2, message=""):
+        self.flow_dic = flow_dic
+        self.df_output2 = df_output2
+        self.message = message
+        super().__init__(self.message)
 
 
 class RepurchaseExtractor:
@@ -40,403 +47,299 @@ class RepurchaseExtractor:
         self.file_link_filing = file_link_filing
         self.flow_dic = {}
         self.df_output2 = pd.DataFrame()
+        self.html_content = None
+        self.period_report_date = None
+        self.period_year = None
+        self.table = None
+        self.soup_before = None
+        self.soup_after = None
+    
+    def _fetch_html_and_period_data(self):
+        """Fetch HTML content and period report date from SEC filing"""
+        self.html_content = fetch_repurchases_html_section(self.file_link_filing)
+        period_report_str = fetch_period_report_date(self.file_link_filing)
+        self.period_report_date = pd.to_datetime(period_report_str, format='%Y-%m-%d')
+        self.period_year = self.period_report_date.year
+    
+    def _identify_and_extract_table(self):
+        """Identify the correct table and extract it from HTML"""
+        # Check if HTML content is empty
+        if len(self.html_content) == 0:
+            self.flow_dic['self_term_re'] = 'len_html_zero'
+            raise ExtractionError(self.flow_dic, self.df_output2, "No HTML content")
+        
+        # Define typical words for repurchase tables
+        typical_words_list = [
+            'paid', 'total', 'part', 'announced', 'shares', 'plans', 'period', 
+            'purchases', 'number', 'share', 'under', 'publicly', 'yet', 'price', 
+            'programs', 'average', 'may', 'per', 'purchased', 'plan', 'program', 
+            'approximate', 'maximum', 'dollar', 'value', 'aggregate', 'except', 'dollars'
+        ]
+        typical_words_set = set(typical_words_list)
+        
+        # Parse HTML content
+        soup = BeautifulSoup(self.html_content, 'html.parser')
+        soup_org2 = copy.deepcopy(soup)
+        soup_org2_text = soup_org2.get_text(separator=' ', strip=True)
+        
+        # Process text with white_word_maker
+        try:
+            soup_org2_word_list = white_word_maker(soup_org2_text)
+        except Exception as e:
+            self.flow_dic['error_term_re'] = "white_word_maker_soup_org2_word_num"
+            self.flow_dic['error_term_re_e'] = str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"Error processing text: {e}")
+        
+        # Count tables
+        tables = soup.find_all('table')
+        num_tables = len(tables)
+        self.flow_dic['num_tables'] = num_tables
+        
+        if num_tables == 0:
+            self.flow_dic['self_term_re'] = 'num_tables_zero'
+            raise ExtractionError(self.flow_dic, self.df_output2, "No tables found")
+        
+        # Analyze tables
+        tables_length_list = [len(xt) for xt in tables]
+        table_lengths = [len(str(table)) for table in tables]
+        
+        # Create table database
+        table_db = pd.DataFrame({
+            'len_table': tables_length_list
+        }, index=range(len(tables)))
+        
+        # Analyze each table
+        num_rows = []
+        num_cols = []
+        num_rows2 = []
+        num_cols2 = []
+        
+        for table in tables:
+            if len(table.get_text(strip=True)) < 10:
+                num_rows.append(0)
+                num_cols.append(0)
+                num_rows2.append(0)
+                num_cols2.append(0)
+                continue
+                
+            table_str = str(table)
+            
+            try:
+                df_table = pd.read_html(table_str)[0]
+                df_table.replace("", np.nan, inplace=True)
+                df_table_cleaned = df_table.dropna(axis=0, how='all').dropna(axis=1, how='all')
+                
+                num_rows2.append(df_table_cleaned.shape[0])
+                num_cols2.append(df_table_cleaned.shape[1])
+                num_rows.append(df_table.shape[0])
+                num_cols.append(df_table.shape[1])
+                
+            except ValueError:
+                num_rows.append(0)
+                num_cols.append(0)
+                num_rows2.append(0)
+                num_cols2.append(0)
+                continue
+        
+        # Add analysis results to table_db
+        table_db['num_rows'] = num_rows
+        table_db['num_cols'] = num_cols
+        table_db['num_rows2'] = num_rows2
+        table_db['num_cols2'] = num_cols2
+        
+        # Define filter words
+        months_full = ["january", "february", "march", "april", "may", "june", 
+                       "july", "august", "september", "october", "november", "december"]
+        months_abbr = ["jan", "feb", "mar", "apr", "may", "jun", 
+                       "jul", "aug", "sep", "oct", "nov", "dec"]
+        month_words = months_full + months_abbr
+        unit_words = ["thousand", "million", "billion", "thousands", "millions", "billions"]
+        filter_words = month_words + unit_words
+        
+        # Extract words from each table
+        word_lists = []
+        for table in tables:
+            text = table.get_text(separator=' ', strip=True)
+            words = re.split(r'[^a-zA-Z]+', text)
+            filtered_words = [word.lower() for word in words if len(word) > 2 and word.lower() not in filter_words]
+            word_lists.append(filtered_words)
+        
+        # Add word analysis to table_db
+        table_db['word_list'] = word_lists
+        table_db['word_inter_set'] = table_db['word_list'].apply(lambda words: list(set(words) & typical_words_set))
+        table_db['word_inter_len'] = table_db['word_inter_set'].apply(len)
+        table_db['word_len'] = table_db['word_list'].apply(len)
+        
+        # Filter tables of interest
+        filtered_tables = table_db[(table_db['num_rows2'] >= 4) &
+                                   (table_db['num_cols2'] >= 5) &
+                                   (table_db['word_inter_len'] >= 8)]
+        
+        table_indexes = filtered_tables.index.tolist()
+        table_id = None
+        
+        # Determine table of interest
+        if not table_indexes:
+            self.flow_dic['self_term_re'] = 'no_table_of_interest_found'
+            raise ExtractionError(self.flow_dic, self.df_output2, "No table of interest found")
+        elif len(table_indexes) == 1:
+            table_id = table_indexes[0]
+            self.flow_dic['table_of_interest_id'] = table_id
+            self.flow_dic['table_of_interest_sit'] = 'unique'
+        else:
+            max_word_inter_len = filtered_tables['word_inter_len'].max()
+            second_max_word_inter_len = filtered_tables['word_inter_len'].nlargest(2).iloc[-1]
+            
+            if max_word_inter_len >= 1.3 * second_max_word_inter_len:
+                table_id = filtered_tables[filtered_tables['word_inter_len'] == max_word_inter_len].index[0]
+                self.flow_dic['table_of_interest_id'] = table_id
+                self.flow_dic['table_of_interest_sit'] = 'majority_of_word_inter_len'
+            else:
+                self.flow_dic['self_term_re'] = 'multiple_tables_of_interest'
+                raise ExtractionError(self.flow_dic, self.df_output2, "Multiple tables of interest found")
+        
+        if table_id is not None:
+            print(f"Table ID set to: {table_id}")
+        
+        # Handle other significant tables
+        other_significant_tables = table_db[(table_db['num_cols2'] >= 3) & (table_db['word_len'] > 6)]
+        other_table_indexes = other_significant_tables.index.tolist()
+        
+        if table_id in other_table_indexes:
+            other_table_indexes.remove(table_id)
+        
+        print("Indexes of other significant tables (excluding the primary table of interest):", other_table_indexes)
+        
+        # Process other significant tables
+        other_id = None
+        other_dum = 0
+        other_loc = None
+        
+        self.flow_dic['num_other_sig_tables'] = len(other_table_indexes)
+        
+        if len(other_table_indexes) == 0:
+            print("No other significant table was found.")
+        elif len(other_table_indexes) > 1:
+            print("There is more than one other significant table.")
+            min_other_table_indexes = min(other_table_indexes)
+            if min_other_table_indexes > table_id:
+                other_id = min_other_table_indexes
+            else:
+                self.flow_dic['self_term_re'] = 'multiple_other_sig_tables'
+                raise ExtractionError(self.flow_dic, self.df_output2, "Multiple other significant tables found")
+        else:
+            other_id = other_table_indexes[0]
+            self.flow_dic['unique_other_sig_table_id'] = other_id
+            other_dum = 1
+            if other_id < table_id:
+                other_loc = 0
+            else:
+                other_loc = 1
+            print(f"Other significant table found at index: {other_id}, location relative to table of interest: {'before' if other_loc == 0 else 'after'}")
+        
+        # Handle other table removal if needed
+        if other_dum == 1:
+            soup_str = str(soup)
+            other_table = tables[other_id]
+            table_html = str(other_table)
+            
+            other_table_start = None
+            other_table_end = None
+            
+            try:
+                start_pattern = re.escape(table_html[:700])
+                start_match = re.search(start_pattern, soup_str)
+                
+                if start_match:
+                    other_table_start = start_match.start()
+                    other_table_end = other_table_start + len(table_html)
+                else:
+                    print("No match found for the table in the HTML content.")
+                    self.flow_dic['self_term_re'] = 'start_match_of_sig_wasnt_found'
+                    raise ExtractionError(self.flow_dic, self.df_output2, "Could not locate other significant table")
+                    
+            except Exception as e:
+                print("Error finding the table:", e)
+                self.flow_dic['error_term_re'] = "Error_finding_the_sig_table"
+                self.flow_dic['error_term_re_e'] = str(e)
+                raise ExtractionError(self.flow_dic, self.df_output2, f"Error finding significant table: {e}")
+            
+            if other_table_start is not None and other_table_end is not None:
+                print(f"Start of the other table: {other_table_start}, End of the other table: {other_table_end}")
+            else:
+                print("Failed to locate the other table in the document.")
+                self.flow_dic['self_term_re'] = 'failed_to_locate_sig_table'
+                raise ExtractionError(self.flow_dic, self.df_output2, "Failed to locate other significant table")
+        
+        # Remove other table if needed
+        soup_org = soup
+        if other_dum == 1 and other_table_start and other_table_end:
+            if other_loc == 1:
+                soup_str = soup_str[:other_table_start]
+            elif other_loc == 0:
+                soup_str = soup_str[other_table_end+1:]
+            
+            soup = BeautifulSoup(soup_str, 'html.parser')
+            print("Updated HTML document with the other table removed.")
+        
+        # Locate the main table
+        soup_str = str(soup)
+        table = tables[table_id]
+        table_html = str(table)
+        
+        table_start = None
+        table_end = None
+        
+        try:
+            start_pattern = re.escape(table_html[:700])
+            start_match = re.search(start_pattern, soup_str)
+            
+            if start_match:
+                table_start = start_match.start()
+                table_end = table_start + len(table_html)
+            else:
+                print("No match found for the table in the HTML content.")
+                self.flow_dic['self_term_re'] = 'start_match_of_table_wasnt_found'
+                raise ExtractionError(self.flow_dic, self.df_output2, "Could not locate main table")
+        except Exception as e:
+            print("Error finding the table:", e)
+            self.flow_dic['error_term_re'] = "Error_finding_the_table"
+            self.flow_dic['error_term_re_e'] = str(e)
+            raise ExtractionError(self.flow_dic, self.df_output2, f"Error finding main table: {e}")
+        
+        if table_start is not None and table_end is not None:
+            print(f"Start of the table: {table_start}, End of the table: {table_end}")
+        else:
+            print("Failed to locate the table in the document.")
+            self.flow_dic['self_term_re'] = 'failed_to_locate_table'
+            raise ExtractionError(self.flow_dic, self.df_output2, "Failed to locate main table")
+        
+        # Extract soup before and after table
+        parser_label = 'html.parser'
+        text_before_table = soup_str[:table_start]
+        text_after_table = soup_str[table_end:]
+        
+        self.soup_before = BeautifulSoup(text_before_table, parser_label)
+        self.soup_after = BeautifulSoup(text_after_table, parser_label)
+        
+        # Preprocess and set the table
+        self.table = preprocess_html(table)
     
     def extract(self):
         """Main extraction method - orchestrates the entire process"""
         try:
-            
-            self.flow_dic['self_term_re']=np.nan
-            self.flow_dic['error_term_re_e']=np.nan
+            self.flow_dic['self_term_re'] = np.nan
+            self.flow_dic['error_term_re_e'] = np.nan
 
-            
-            html_content = fetch_repurchases_html_section(self.file_link_filing)
-            period_report_str=fetch_period_report_date(self.file_link_filing)
-            period_report_date= pd.to_datetime(period_report_str, format='%Y-%m-%d')
-            period_year=period_report_date.year
-           
-
-            
-            if len(html_content)==0:
-                self.flow_dic['self_term_re']='len_html_zero'
-                return (self.flow_dic,self.df_output2)
-                
-            
-            typical_words_list = [
-                'paid', 'total', 'part', 'announced', 'shares', 'plans', 'period', 
-                'purchases', 'number', 'share', 'under', 'publicly', 'yet', 'price', 
-                'programs', 'average', 'may', 'per', 'purchased', 'plan', 'program', 
-                'approximate', 'maximum', 'dollar', 'value', 'aggregate', 'except', 'dollars'
-            ]
-                            
-            typical_words_set=set(typical_words_list)
-            
-            soup = BeautifulSoup(html_content, 'html.parser')
-            soup_org2=copy.deepcopy(soup)
-            
-            soup_org2_text=soup_org2.get_text(separator=' ', strip=True)
-            
-            try:
-                soup_org2_word_list=white_word_maker(soup_org2_text)
-                #self.flow_dic['soup_org2_word_num']=len(soup_org2_word_list)
-                
-            except Exception as e:
-                self.flow_dic['error_term_re']="white_word_maker_soup_org2_word_num"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            
-            
-            # Count the number of tables in the HTML content
-            tables = soup.find_all('table')
-            
-            num_tables = len(tables)
-            
-            self.flow_dic['num_tables']=num_tables
-            
-            if num_tables==0:
-                self.flow_dic['self_term_re']='num_tables_zero'
-                return (self.flow_dic,self.df_output2)
-            
-            # table detection, start: 
-            
-            tables_length_list=[len(xt) for xt in tables]
-            
-            # Create a list of lengths of each table
-            table_lengths = [len(str(table)) for table in tables]
-            
-            # Create the initial DataFrame with table lengths
-            table_db = pd.DataFrame({
-                'len_table': tables_length_list
-            }, index=range(len(tables)))
-            
-            # Lists to hold the number of rows and columns of each table DataFrame
-            num_rows = []
-            num_cols = []
-            
-            # Lists to hold the number of rows and columns of each table DataFrame after cleaning
-            num_rows2 = []
-            num_cols2 = []
-            
-            # Process each table with pandas.read_html
-            for table in tables:
-                # Convert the table to a string
-                if len(table.get_text(strip=True))<10:
-                    num_rows.append(0)
-                    num_cols.append(0)
-                    num_rows2.append(0)
-                    num_cols2.append(0)
-                    continue
-                    
-                
-                table_str = str(table)
-                
-                try:
-                    # Parse the HTML table into a DataFrame
-                    df_table = pd.read_html(table_str)[0]
-                    
-                    # Replace empty strings with np.nan
-                    df_table.replace("", np.nan, inplace=True)
-                    
-                    # Drop rows and columns where all elements are NaN
-                    df_table_cleaned = df_table.dropna(axis=0, how='all').dropna(axis=1, how='all')
-                    
-                    # Append the shape details of the cleaned DataFrame to the lists
-                    num_rows2.append(df_table_cleaned.shape[0])
-                    num_cols2.append(df_table_cleaned.shape[1])
-            
-                    # Record the original shape details
-                    num_rows.append(df_table.shape[0])
-                    num_cols.append(df_table.shape[1])
-                
-                except ValueError:
-                    # Handle cases where no table could be parsed
-                    num_rows.append(0)
-                    num_cols.append(0)
-                    num_rows2.append(0)
-                    num_cols2.append(0)
-                    continue
-            
-            # Add the rows and columns to the DataFrame
-            table_db['num_rows'] = num_rows
-            table_db['num_cols'] = num_cols
-            table_db['num_rows2'] = num_rows2
-            table_db['num_cols2'] = num_cols2
-            
-            
-            
-            
-            
-            # Define the list of full month names and common abbreviations
-            months_full = ["january", "february", "march", "april", "may", "june", 
-                           "july", "august", "september", "october", "november", "december"]
-            months_abbr = ["jan", "feb", "mar", "apr", "may", "jun", 
-                           "jul", "aug", "sep", "oct", "nov", "dec"]
-            
-            # Combine full names and abbreviations into one list
-            month_words = months_full + months_abbr
-            
-            # Define a list of common unit words
-            unit_words = ["thousand", "million", "billion", "thousands", "millions", "billions"]
-            
-            # Combine month and unit words into one filter list
-            filter_words = month_words + unit_words
-            
-            # Lists to hold the filtered words for each table
-            word_lists = []
-            
-            # Process each table to extract text and split into words
-            for table in tables:
-                # Extract text using a separator
-                text = table.get_text(separator=' ', strip=True)
-                
-                # Split text into words using non-alphabet characters as delimiters
-                words = re.split(r'[^a-zA-Z]+', text)
-                
-                # Convert words to lower case, remove single-character words, empty strings, and filter words
-                filtered_words = [word.lower() for word in words if len(word) > 2 and word.lower() not in filter_words]
-                
-                # Append the filtered list of words to word_lists
-                word_lists.append(filtered_words)
-            
-            # Add the word lists to the DataFrame
-            table_db['word_list'] = word_lists
-            
-            
-            table_db['word_inter_set'] = table_db['word_list'].apply(lambda words: list(set(words) & typical_words_set))
-            
-            # Calculate the length of each set in the 'word_inter_set' column and store it in a new column
-            table_db['word_inter_len'] = table_db['word_inter_set'].apply(len)
-            
-            table_db['word_len'] = table_db['word_list'].apply(len)
-            
-            
-            
-            
-            # Apply conditions to filter the DataFrame
-            filtered_tables = table_db[(table_db['num_rows2'] >= 4) &
-                                       (table_db['num_cols2'] >= 5) &
-                                       (table_db['word_inter_len'] >= 8)]
-            
-            # Retrieve the indexes of the filtered tables
-            table_indexes = filtered_tables.index.tolist()
-            
-            # Define table_id variable
-            table_id = None
-            
-            # Print the indexes and handle different scenarios
-            if not table_indexes:  # Check if list is empty
-                
-                self.flow_dic['self_term_re']='no_table_of_interest_found'
-                return (self.flow_dic,self.df_output2)
-                
-            elif len(table_indexes) == 1:  # Check if there is only one table
-                table_id = table_indexes[0]
-                self.flow_dic['table_of_interest_id']=table_id
-                self.flow_dic['table_of_interest_sit']='unique'
-            else:  # Multiple tables found, need to find the one with the maximum word_inter_len
-                # Retrieve the word_inter_len values for the filtered tables
-                max_word_inter_len = filtered_tables['word_inter_len'].max()
-                second_max_word_inter_len = filtered_tables['word_inter_len'].nlargest(2).iloc[-1]
-            
-                # Check if the first maximum is 30% or more bigger than the second maximum
-                if max_word_inter_len >= 1.3 * second_max_word_inter_len:
-                    table_id = filtered_tables[filtered_tables['word_inter_len'] == max_word_inter_len].index[0]
-                    self.flow_dic['table_of_interest_id']=table_id
-                    self.flow_dic['table_of_interest_sit']='majority_of_word_inter_len'
-                else:
-                    self.flow_dic['self_term_re']='multiple_tables_of_interest'
-                    return (self.flow_dic,self.df_output2)
-            
-            # Optional: Print the table_id or further process it
-            if table_id is not None:
-                print(f"Table ID set to: {table_id}")
-            
-            
-            # Apply conditions to filter the DataFrame for other significant tables
-            other_significant_tables = table_db[(table_db['num_cols2'] >= 3) &
-                                                (table_db['word_len'] > 6)]
-            
-            # Retrieve the indexes of the filtered tables
-            other_table_indexes = other_significant_tables.index.tolist()
-            
-            # Check if table_id is among the other significant table indexes and remove it
-            if table_id in other_table_indexes:
-                other_table_indexes.remove(table_id)
-            
-            # Print the remaining indexes
-            print("Indexes of other significant tables (excluding the primary table of interest):", other_table_indexes)
-            
-            
-            
-            
-            
-            # Initialize variables
-            other_id = None
-            other_dum = 0
-            other_loc = None
-            
-            # Check the number of other significant tables
-            self.flow_dic['num_other_sig_tables']=len(other_table_indexes)
-            
-            if len(other_table_indexes) == 0:
-                print("No other significant table was found.")
-                
-            elif len(other_table_indexes) > 1:
-                print("There is more than one other significant table.")
-                min_other_table_indexes=min(other_table_indexes)
-                if min_other_table_indexes>table_id:
-                    other_id=min_other_table_indexes
-                else:
-                    self.flow_dic['self_term_re']='multiple_other_sig_tables'
-                    return (self.flow_dic,self.df_output2)
-                
-                
-            else:
-                # There is exactly one other significant table
-                other_id = other_table_indexes[0]
-                self.flow_dic['unique_other_sig_table_id']=other_id
-                other_dum = 1
-                # Determine the relative location of this table compared to our table_id
-                if other_id < table_id:
-                    other_loc = 0  # Other table is before our table
-                else:
-                    other_loc = 1  # Other table is after our table
-            
-                print(f"Other significant table found at index: {other_id}, location relative to table of interest: {'before' if other_loc == 0 else 'after'}")
-            
-            
-            
-            
-            if other_dum==1:
-            
-                # Convert the entire BeautifulSoup object to a string once to avoid repetitive processing
-                soup_str = str(soup)
-                
-                # Retrieve the specific table using other_id
-                other_table = tables[other_id]
-                table_html = str(other_table)
-                
-                # Initialize variables for start and end positions of the other table
-                other_table_start = None
-                other_table_end = None
-                
-                # Use a try-except block to handle the case where the table is not found
-                try:
-                    # Use the first 200 characters of the table HTML to find a unique match in the soup string
-                    start_pattern = re.escape(table_html[:700])
-                    start_match = re.search(start_pattern, soup_str)
-                
-                    # If a match is found, calculate the start and end positions
-                    if start_match:
-                        other_table_start = start_match.start()
-                        other_table_end = other_table_start + len(table_html)
-                    else:
-                        print("No match found for the table in the HTML content.")
-                        self.flow_dic['self_term_re']='start_match_of_sig_wasnt_found'
-                        return (self.flow_dic,self.df_output2)
-                        
-                except Exception as e:
-                    # Handle cases where the table might not be found or the regex search fails
-                    print("Error finding the table:", e)
-                    self.flow_dic['error_term_re']="Error_finding_the_sig_table"
-                    self.flow_dic['error_term_re_e']=str(e)
-                    return (self.flow_dic,self.df_output2)
-                
-                # Optionally, print the start and end positions
-                if other_table_start is not None and other_table_end is not None:
-                    print(f"Start of the other table: {other_table_start}, End of the other table: {other_table_end}")
-                else:
-                    print("Failed to locate the other table in the document.")
-                    self.flow_dic['self_term_re']='failed_to_locate_sig_table'
-                    return (self.flow_dic,self.df_output2) 
-            
-            
-            
-            soup_org=soup 
-            
-            # ************* save the original soup (maybe)
-            
-            # ************
-            
-            #soup_str_org=soup_str
-            
-            
-            if other_dum==1 and other_table_start and other_table_end:
-            
-                # If the other table is after table_id
-                if other_loc == 1:
-                    # Keep everything up to the start of the other table
-                    soup_str = soup_str[:other_table_start]
-                elif other_loc == 0:
-                    # Keep everything after the end of the other table
-                    soup_str = soup_str[other_table_end+1:]
-                
-                # Recreate the BeautifulSoup object with the modified HTML string
-                soup = BeautifulSoup(soup_str, 'html.parser')
-                
-                # Optionally print or return the new soup object
-                print("Updated HTML document with the other table removed.")
-            
-            
-            
-            
-            
-            # Convert the entire BeautifulSoup object to a string once to avoid repetitive processing
-            soup_str = str(soup)
-            
-            # Retrieve the specific table using table_id
-            table = tables[table_id]
-            table_html = str(table)
-            
-            # Initialize variables for start and end positions of the table
-            table_start = None
-            table_end = None
-            
-            # Use a try-except block to handle the case where the table is not found
-            try:
-                # Use the first 700 characters of the table HTML to find a unique match in the soup string
-                start_pattern = re.escape(table_html[:700])
-                start_match = re.search(start_pattern, soup_str)
-            
-                # If a match is found, calculate the start and end positions
-                if start_match:
-                    table_start = start_match.start()
-                    table_end = table_start + len(table_html)
-                else:
-                    print("No match found for the table in the HTML content.")
-                    self.flow_dic['self_term_re']='start_match_of_table_wasnt_found'
-                    return (self.flow_dic,self.df_output2)
-            except Exception as e:
-                # Handle cases where the table might not be found or the regex search fails
-                print("Error finding the table:", e)
-                self.flow_dic['error_term_re']="Error_finding_the_table"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
-            
-            # Optionally, print the start and end positions
-            if table_start is not None and table_end is not None:
-                print(f"Start of the table: {table_start}, End of the table: {table_end}")
-            else:
-                print("Failed to locate the table in the document.")
-                self.flow_dic['self_term_re']='failed_to_locate_table'
-                return (self.flow_dic,self.df_output2)
-            
-            parser_label='html.parser'
-            text_before_table =soup_str[: table_start]
-            text_after_table = soup_str[table_end:]
-            
-            soup_before = BeautifulSoup(text_before_table, parser_label)
-            soup_after = BeautifulSoup(text_after_table, parser_label)
-            
-            
-   
-
-            
-            table=preprocess_html(table)
-            
-            df = pd.read_html(str(table))[0]
-            
-            
+            # Fetch HTML content and period data
+            self._fetch_html_and_period_data()
+            
+            # Identify and extract the table
+            self._identify_and_extract_table()
+            
+            # Process the identified table
+            df = pd.read_html(str(self.table))[0]
+        
            
             # Check if all columns and rows are integers and reset index/columns if true
             df=reset_integer_index_and_columns(df)
@@ -1472,7 +1375,7 @@ class RepurchaseExtractor:
             
             try:
               
-              cand_footnotes_in_text_after = extract_potential_footnotes(soup_after)
+              cand_footnotes_in_text_after = extract_potential_footnotes(self.soup_after)
             
             except Exception as e:
                 self.flow_dic['error_term_re']="extract_potential_footnotes"
@@ -1960,8 +1863,8 @@ class RepurchaseExtractor:
                             first_month=month_to_number(whole_date_processed[0])
                             second_month=month_to_number(whole_date_processed[0])
                             
-                            first_year=period_year
-                            second_year=period_year
+                            first_year=self.period_year
+                            second_year=self.period_year
                             
                             first_day=1
                             second_day=days_in_month(second_year,second_month)
@@ -1989,8 +1892,8 @@ class RepurchaseExtractor:
                             first_day=int(whole_date_processed[1])
                             second_day=int(whole_date_processed[3])
                             
-                            first_year=period_year
-                            second_year=period_year
+                            first_year=self.period_year
+                            second_year=self.period_year
                             
 
                             
@@ -2068,8 +1971,8 @@ class RepurchaseExtractor:
                             first_month=month_to_number(whole_date_processed[0])
                             second_month=month_to_number(whole_date_processed[0])
                             
-                            first_year=period_year
-                            second_year==period_year
+                            first_year=self.period_year
+                            second_year==self.period_year
                             
                             first_day=int(whole_date_processed[1])
                             second_day=int(whole_date_processed[2])
@@ -2341,8 +2244,8 @@ class RepurchaseExtractor:
                                 first_month=month_to_number(whole_date_processed[0])
                                 second_month=month_to_number(whole_date_processed[0])
                                 
-                                first_year=period_year
-                                second_year=period_year
+                                first_year=self.period_year
+                                second_year=self.period_year
                                 
                                 first_day=1
                                 second_day=days_in_month(second_year,second_month)
@@ -2370,8 +2273,8 @@ class RepurchaseExtractor:
                                 first_day=int(whole_date_processed[1])
                                 second_day=int(whole_date_processed[3])
                                 
-                                first_year=period_year
-                                second_year=period_year
+                                first_year=self.period_year
+                                second_year=self.period_year
                                 
     
                                 
@@ -2448,8 +2351,8 @@ class RepurchaseExtractor:
                                 first_month=month_to_number(whole_date_processed[0])
                                 second_month=month_to_number(whole_date_processed[0])
                                 
-                                first_year=period_year
-                                second_year==period_year
+                                first_year=self.period_year
+                                second_year==self.period_year
                                 
                                 first_day=int(whole_date_processed[1])
                                 second_day=int(whole_date_processed[2])
@@ -2845,7 +2748,7 @@ class RepurchaseExtractor:
             above_unit_overwrite=0
             
             unit_in_text=None
-            text_before_table_cleaned=soup_before.get_text(separator=' ', strip=True)
+            text_before_table_cleaned=self.soup_before.get_text(separator=' ', strip=True)
             unit_in_text= unit_extracted_for_text(text_before_table_cleaned)
             
             if unit_in_text:
@@ -2933,7 +2836,7 @@ class RepurchaseExtractor:
             
             
                 
-            units_in_after_contents= extract_units_from_after_contents(soup_after)
+            units_in_after_contents= extract_units_from_after_contents(self.soup_after)
             
             too_many_str_after_units=0
             y_in_str_after_units=0
@@ -3457,11 +3360,6 @@ class RepurchaseExtractor:
                     
                     e=monthly_interval_dates_converted[m][1] 
                     df_output.loc[df_output['id']==m,'end_date']=e
-                    
-                # df_output['cik']=cik
-                # df_output['permno']=permno
-                # df_output['form_id']=form_id
-                # df_output['period_report_date']=period_report_date
                 
                 try:
                     df_output_pos_footnote=df_output.map(extract_single_digit_or_letter_in_parenth)
@@ -3560,8 +3458,6 @@ class RepurchaseExtractor:
                     self.flow_dic['self_term_re']='unhealthy_inner_cell'
                     return (self.flow_dic,self.df_output2)
                     
-                # self.df_output2['query_id']=row_query_id
-                
                 new_row = pd.Series(np.nan, index=self.df_output2.columns)
                 for col, role in roles.items():
                     if role == 'period':
@@ -3581,10 +3477,14 @@ class RepurchaseExtractor:
 
                 
          
+        except ExtractionError as e:
+            # Return the error state from the exception
+            return (e.flow_dic, e.df_output2)
         except Exception as e:
-                self.flow_dic['error_term_re']="general"
-                self.flow_dic['error_term_re_e']=str(e)
-                return (self.flow_dic,self.df_output2)
+            # Handle unexpected errors
+            self.flow_dic['error_term_re']="general"
+            self.flow_dic['error_term_re_e']=str(e)
+            return (self.flow_dic,self.df_output2)
     
 
 
