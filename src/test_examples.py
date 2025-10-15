@@ -10,8 +10,15 @@ TEST_FILING_URLS = [
 
 def test_all_examples():
     """Test all examples to ensure functionality is maintained"""
-    from main import RepurchaseExtractor
+    import warnings
     import pandas as pd
+    
+    # Suppress warnings for cleaner output
+    warnings.filterwarnings('ignore', category=FutureWarning)
+    warnings.filterwarnings('ignore', category=pd.errors.SettingWithCopyWarning)
+    warnings.filterwarnings('ignore', category=UserWarning)
+    
+    from main import RepurchaseExtractor
 
     for i, url in enumerate(TEST_FILING_URLS, 1):
         print(f"\n{'='*80}")
