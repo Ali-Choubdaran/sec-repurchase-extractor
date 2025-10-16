@@ -462,6 +462,61 @@ class RepurchaseExtractor:
 
         return df
 
+    def _final_cleaning(self):
+        """Apply unit conversions and clean up metadata rows"""
+        # Get unit information from row -2
+        units = self.df_output2.loc[-2, [1, 2, 3, 4]]
+        
+        # Apply unit conversions based on desired output units
+        # Column 1 (total shares): convert to thousands
+        if units[1] == 1:  # already in thousands
+            pass  # no conversion needed
+        elif units[1] == 2:  # millions -> thousands (multiply by 1000)
+            # Only convert numeric values, skip strings
+            numeric_mask = pd.to_numeric(self.df_output2[1], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 1] = self.df_output2.loc[numeric_mask, 1] * 1000
+        elif units[1] == 3:  # billions -> thousands (multiply by 1000000)
+            numeric_mask = pd.to_numeric(self.df_output2[1], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 1] = self.df_output2.loc[numeric_mask, 1] * 1000000
+        elif units[1] == 0 or pd.isna(units[1]):  # no unit -> thousands (divide by 1000)
+            numeric_mask = pd.to_numeric(self.df_output2[1], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 1] = self.df_output2.loc[numeric_mask, 1] / 1000
+        
+        # Column 2 (average price): keep as is (no unit conversion)
+        # Average prices are usually reasonable numbers anyway
+        
+        # Column 3 (program shares): convert to thousands (same as column 1)
+        if units[3] == 1:  # already in thousands
+            pass  # no conversion needed
+        elif units[3] == 2:  # millions -> thousands (multiply by 1000)
+            numeric_mask = pd.to_numeric(self.df_output2[3], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 3] = self.df_output2.loc[numeric_mask, 3] * 1000
+        elif units[3] == 3:  # billions -> thousands (multiply by 1000000)
+            numeric_mask = pd.to_numeric(self.df_output2[3], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 3] = self.df_output2.loc[numeric_mask, 3] * 1000000
+        elif units[3] == 0 or pd.isna(units[3]):  # no unit -> thousands (divide by 1000)
+            numeric_mask = pd.to_numeric(self.df_output2[3], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 3] = self.df_output2.loc[numeric_mask, 3] / 1000
+        
+        # Column 4 (remaining value): convert to millions
+        if units[4] == 0 or pd.isna(units[4]):  # no unit -> millions (divide by 1000000)
+            numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] / 1000000
+        elif units[4] == 1:  # thousands -> millions (divide by 1000)
+            numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] / 1000
+        elif units[4] == 2:  # already in millions
+            pass  # no conversion needed
+        elif units[4] == 3:  # billions -> millions (multiply by 1000)
+            numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
+            self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] * 1000
+        
+        # Remove only the units row (-2) since we've used it
+        # Keep -1 and -3 for later processing
+        self.df_output2 = self.df_output2.drop([-2])
+        
+        # Do NOT reset index - keep original indexing for future work
+
     def _process_complex_table_logic(self,df):
         """Process the complex table logic"""
         period_col_span=[]
@@ -3344,6 +3399,7 @@ class RepurchaseExtractor:
 
             df=self._preprocess_table()
             self._process_complex_table_logic(df)
+            self._final_cleaning()
           
 
 
