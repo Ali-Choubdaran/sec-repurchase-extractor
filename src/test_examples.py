@@ -52,6 +52,13 @@ def test_all_examples():
                 print(df_output.to_string(index=True))
             else:
                 print("  No data extracted")
+            
+            # Save df_output2 to pickle file for detailed examination
+            import pickle
+            pickle_filename = f"df_output2_test_{i}.pkl"
+            with open(pickle_filename, 'wb') as f:
+                pickle.dump(df_output, f)
+            print(f"\n💾 SAVED: {pickle_filename} for detailed examination")
                 
             print(f"\n✅ SUCCESS: {len(df_output)} rows extracted")
             

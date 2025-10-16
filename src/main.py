@@ -557,6 +557,24 @@ class RepurchaseExtractor:
         # Remove row -3 (redundant metadata row)
         self.df_output2 = self.df_output2.drop([-3])
         
+        # Fix date ranges for total rows (id == 4)
+        total_rows = self.df_output2['id'] == 4
+        if total_rows.any():
+            # Get monthly rows (id == 1, 2, 3)
+            monthly_rows = self.df_output2['id'].isin([1, 2, 3])
+            
+            if monthly_rows.any():
+                # Calculate earliest beg_date and latest end_date from monthly rows
+                earliest_beg_date = self.df_output2.loc[monthly_rows, 'beg_date'].min()
+                latest_end_date = self.df_output2.loc[monthly_rows, 'end_date'].max()
+                
+                # Apply these dates to total rows
+                self.df_output2.loc[total_rows, 'beg_date'] = earliest_beg_date
+                self.df_output2.loc[total_rows, 'end_date'] = latest_end_date
+        
+        # Remove the 'rank' column as it's redundant (just cumcount within id groups)
+        self.df_output2 = self.df_output2.drop(columns=['rank'])
+        
         # Do NOT reset index - keep original indexing for future work
 
     def _process_complex_table_logic(self,df):
