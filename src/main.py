@@ -511,9 +511,51 @@ class RepurchaseExtractor:
             numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
             self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] * 1000
         
-        # Remove only the units row (-2) since we've used it
+        # Extract column headers from row 0 and store in flow_dic
+        meta_data = {
+            '0': self.df_output2.loc[0, 0],
+            '1': self.df_output2.loc[0, 1], 
+            '2': self.df_output2.loc[0, 2],
+            '3': self.df_output2.loc[0, 3],
+            '4': self.df_output2.loc[0, 4]
+        }
+        self.flow_dic['meta_data'] = meta_data
+        
+        # Remove row 0 (header row) and units row (-2)
         # Keep -1 and -3 for later processing
-        self.df_output2 = self.df_output2.drop([-2])
+        self.df_output2 = self.df_output2.drop([0, -2])
+        
+        # Rename columns to meaningful names
+        column_mapping = {
+            0: 'row_label',      # Row description/label
+            1: 'tot_shares',    # Total shares purchased
+            2: 'avg_price',      # Average price per share  
+            3: 'prog_shares',   # Program shares purchased
+            4: 'remaining_auth' # Remaining authorization
+        }
+        self.df_output2 = self.df_output2.rename(columns=column_mapping)
+        
+        # Extract dollar/number info from row -1 and create dummy columns
+        dollar_columns = ['tot_shares', 'avg_price', 'prog_shares', 'remaining_auth']
+        
+        for col in dollar_columns:
+            # Get the dollar indicator from row -1 (1 = dollar, 0 = number)
+            dollar_indicator = self.df_output2.loc[-1, col]
+            
+            # Create new column with _dollar suffix
+            new_col_name = f"{col}_dollar"
+            
+            # Set dummy variable: 1 if dollar, 0 if number (or NaN if not applicable)
+            if pd.notna(dollar_indicator):
+                self.df_output2[new_col_name] = int(dollar_indicator)
+            else:
+                self.df_output2[new_col_name] = 0  # Default to 0 if not applicable
+        
+        # Remove row -1 after extracting dollar/number info
+        self.df_output2 = self.df_output2.drop([-1])
+        
+        # Remove row -3 (redundant metadata row)
+        self.df_output2 = self.df_output2.drop([-3])
         
         # Do NOT reset index - keep original indexing for future work
 
