@@ -517,12 +517,9 @@ class RepurchaseExtractor:
                 self.flow_dic['error_term_re']="text_reducer"
                 self.flow_dic['error_term_re_e']=str(e)
                 return (self.flow_dic,self.df_output2)
-            
-            
-            
+   
             df_reduced.replace("", np.nan, inplace=True)
-            
-            
+       
             reduced_stat=0
             row_id_with_four_uniques=None
             # Assuming df_reduced is your DataFrame
@@ -587,10 +584,7 @@ class RepurchaseExtractor:
                 for index, row in df_reduced.iloc[:, period_col_end_cand+1:].iterrows():
                     # Store the unique non-NaN values of each row in the dictionary
                     unique_values_dict[index] = list(row.dropna().unique())
-                
-    
-            
-            
+
             # Find the maximum length among the values in the dictionary
             max_length = max(len(values) for values in unique_values_dict.values())
             
@@ -719,7 +713,7 @@ class RepurchaseExtractor:
                 
                 df_reduced.replace("", np.nan, inplace=True)
                 
-                
+          
                 
                 reduced_stat=0
                 row_id_with_four_uniques=None
@@ -734,10 +728,7 @@ class RepurchaseExtractor:
                     # Store the unique non-NaN values of each row in the dictionary
                     unique_values_dict[index] = list(row.dropna().unique())
                 
-                                
-                    
-                
-                
+     
                 # Find the maximum length among the values in the dictionary
                 max_length = max(len(values) for values in unique_values_dict.values())
                 
@@ -890,8 +881,6 @@ class RepurchaseExtractor:
             
 
             
-            
-            
             # Merging out-of-range footnotes to the proper cell
             for i in range(df.shape[1] - 1):
                 # Check if the first row of column i+1 is a footnote and column i has a regular header
@@ -943,9 +932,7 @@ class RepurchaseExtractor:
             df = df.dropna(axis=0, how='all')
             df = df.reset_index(drop=True)
             df.columns = range(df.shape[1])
-            
-
-
+  
             #merging scatter information related to one column into one column (the one to the rightest)
             for i in range(df.shape[1]-1):
                 if df.iloc[0, i] == df.iloc[0, i+1] and pd.notna(df.iloc[0, i]) :
@@ -1010,13 +997,9 @@ class RepurchaseExtractor:
                 self.flow_dic['error_term_re']="para_whitespace_stripper"
                 self.flow_dic['error_term_re_e']=str(e)
                 return (self.flow_dic,self.df_output2)
-            
-
-            
+   
             # now let's drop duplicate columns:
-            
 
-            
             # Apply the function
             df.replace("", np.nan, inplace=True)
             df = drop_duplicate_columns(df)
@@ -1049,8 +1032,6 @@ class RepurchaseExtractor:
             df.columns = range(df.shape[1])
             
 
-            
-            
             
             # Merging out-of-range footnotes to the proper cell
             for i in range(df.shape[1] - 1):
@@ -1240,9 +1221,7 @@ class RepurchaseExtractor:
             
             df_reduced2.replace("", np.nan, inplace=True)
             
-            
-
-            
+    
             try:
               
               df_reduced2_words=df_reduced2.map(white_word_maker)
@@ -1252,9 +1231,7 @@ class RepurchaseExtractor:
                 self.flow_dic['error_term_re_e']=str(e)
                 return (self.flow_dic,self.df_output2)
             
-            
-            
-           
+
             # Initialize df_col_roles with the same number of columns as df_reduced2_words and two rows
             df_col_roles = pd.DataFrame(index=[0, 1], columns=range(1,df_reduced2_words.shape[1]))
             
@@ -1315,8 +1292,7 @@ class RepurchaseExtractor:
             if len(remain_cols) == 1:
                 df_col_roles.at[1, remain_cols[0]] = 'remain'
             
-            
-            
+    
             
             part_set = {'part', 'publicly'}
             
@@ -1343,8 +1319,7 @@ class RepurchaseExtractor:
             if len(part_cols) == 1:
                 df_col_roles.at[1, part_cols[0]] = 'part'
             
-            
-            
+     
             # Check for the 'tot' role
             tot_cols = [col for col in df_col_roles.columns if pd.isna(df_col_roles.at[1, col])]
             
@@ -1360,10 +1335,7 @@ class RepurchaseExtractor:
                 self.flow_dic['error_term_re']="extract_potential_footnotes"
                 self.flow_dic['error_term_re_e']=str(e)
                 return (self.flow_dic,self.df_output2)
-            
- 
-            
-            
+
             try:
               
                # Apply the function to all columns of the first row except the first column
@@ -3037,12 +3009,7 @@ class RepurchaseExtractor:
                         for idx in [1,2,3,4]:
                             if pd.isna(df_output.loc[df_output['id'] == idx, 'table_id']).all():
                                 df_output.loc[df_output['id'] == idx, 'table_id'] = -1
-                               
-                        
-                            
-                        
-                        
-                        
+
                         
                 if len(rank1)==2 and len(rank2)==2 and len(rank3)==2 and len(rank4)==2:
                     if set(rank1)=={1,2} and set(rank2)=={1,2} and set(rank3)=={1,2} and set(rank4)=={1,2}:
@@ -3383,10 +3350,7 @@ class RepurchaseExtractor:
                     
                     self.df_output2.loc[-3] = new_row
                 return (self.flow_dic,self.df_output2)
-                
 
-                
-         
         except ExtractionError as e:
             # Return the error state from the exception
             return (e.flow_dic, e.df_output2)

@@ -6,6 +6,7 @@ These examples ensure functionality is maintained during refactoring
 TEST_FILING_URLS = [
     "https://www.sec.gov/Archives/edgar/data/789019/000156459022035087/msft-10q_20220930.htm",
     "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/aapl-20220625.htm"
+    "https://www.sec.gov/Archives/edgar/data/1286681/000095017024049419/dpz-20240324.htm"
 ]
 
 def test_all_examples():
