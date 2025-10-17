@@ -30,17 +30,17 @@ def test_all_examples():
             extractor.extract()  # No return value - updates instance variables
             
             # Access instance variables directly
-            flow_dic = extractor.flow_dic
-            df_output = extractor.df_output2
+            extraction_metadata = extractor.extraction_metadata
+            repurchase_data = extractor.repurchase_data
             
-            # Print flow_dic (metadata) in a readable format
+            # Print extraction_metadata in a readable format
             print(f"\n📊 EXTRACTION METADATA:")
             print(f"{'─'*50}")
-            for key, value in flow_dic.items():
+            for key, value in extraction_metadata.items():
                 print(f"  {key}: {value}")
             
             # Print the extracted dataframe in a nice format
-            print(f"\n📋 EXTRACTED DATA ({len(df_output)} rows):")
+            print(f"\n📋 EXTRACTED DATA ({len(repurchase_data)} rows):")
             print(f"{'─'*50}")
             
             # Configure pandas display for better readability
@@ -48,19 +48,19 @@ def test_all_examples():
             pd.set_option('display.width', None)
             pd.set_option('display.max_colwidth', 30)
             
-            if not df_output.empty:
-                print(df_output.to_string(index=True))
+            if not repurchase_data.empty:
+                print(repurchase_data.to_string(index=True))
             else:
                 print("  No data extracted")
             
-            # Save df_output2 to pickle file for detailed examination
+            # Save repurchase_data to pickle file for detailed examination
             import pickle
-            pickle_filename = f"df_output2_test_{i}.pkl"
+            pickle_filename = f"repurchase_data_test_{i}.pkl"
             with open(pickle_filename, 'wb') as f:
-                pickle.dump(df_output, f)
+                pickle.dump(repurchase_data, f)
             print(f"\n💾 SAVED: {pickle_filename} for detailed examination")
                 
-            print(f"\n✅ SUCCESS: {len(df_output)} rows extracted")
+            print(f"\n✅ SUCCESS: {len(repurchase_data)} rows extracted")
             
         except Exception as e:
             print(f"\n❌ ERROR: {e}")

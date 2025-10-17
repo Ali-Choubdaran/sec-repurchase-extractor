@@ -35,9 +35,9 @@ load_dotenv()
 
 class ExtractionError(Exception):
     """Custom exception for extraction flow control"""
-    def __init__(self, flow_dic, df_output2, message=""):
-        self.flow_dic = flow_dic
-        self.df_output2 = df_output2
+    def __init__(self, extraction_metadata, repurchase_data, message=""):
+        self.extraction_metadata = extraction_metadata
+        self.repurchase_data = repurchase_data
         self.message = message
         super().__init__(self.message)
 
@@ -45,8 +45,8 @@ class ExtractionError(Exception):
 class RepurchaseExtractor:
     def __init__(self, file_link_filing):
         self.file_link_filing = file_link_filing
-        self.flow_dic = {}
-        self.df_output2 = pd.DataFrame()
+        self.extraction_metadata = {}
+        self.repurchase_data = pd.DataFrame()
         self.html_content = None
         self.period_report_date = None
         self.period_year = None
@@ -65,8 +65,8 @@ class RepurchaseExtractor:
         """Identify the correct table and extract it from HTML"""
         # Check if HTML content is empty
         if len(self.html_content) == 0:
-            self.flow_dic['self_term_re'] = 'len_html_zero'
-            raise ExtractionError(self.flow_dic, self.df_output2, "No HTML content")
+            self.extraction_metadata['self_term_re'] = 'len_html_zero'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, "No HTML content")
         
         # Define typical words for repurchase tables
         typical_words_list = [
@@ -86,18 +86,18 @@ class RepurchaseExtractor:
         try:
             soup_org2_word_list = white_word_maker(soup_org2_text)
         except Exception as e:
-            self.flow_dic['error_term_re'] = "white_word_maker_soup_org2_word_num"
-            self.flow_dic['error_term_re_e'] = str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"Error processing text: {e}")
+            self.extraction_metadata['error_term_re'] = "white_word_maker_soup_org2_word_num"
+            self.extraction_metadata['error_term_re_e'] = str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"Error processing text: {e}")
         
         # Count tables
         tables = soup.find_all('table')
         num_tables = len(tables)
-        self.flow_dic['num_tables'] = num_tables
+        self.extraction_metadata['num_tables'] = num_tables
         
         if num_tables == 0:
-            self.flow_dic['self_term_re'] = 'num_tables_zero'
-            raise ExtractionError(self.flow_dic, self.df_output2, "No tables found")
+            self.extraction_metadata['self_term_re'] = 'num_tables_zero'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, "No tables found")
         
         # Analyze tables
         tables_length_list = [len(xt) for xt in tables]
@@ -180,23 +180,23 @@ class RepurchaseExtractor:
         
         # Determine table of interest
         if not table_indexes:
-            self.flow_dic['self_term_re'] = 'no_table_of_interest_found'
-            raise ExtractionError(self.flow_dic, self.df_output2, "No table of interest found")
+            self.extraction_metadata['self_term_re'] = 'no_table_of_interest_found'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, "No table of interest found")
         elif len(table_indexes) == 1:
             table_id = table_indexes[0]
-            self.flow_dic['table_of_interest_id'] = table_id
-            self.flow_dic['table_of_interest_sit'] = 'unique'
+            self.extraction_metadata['table_of_interest_id'] = table_id
+            self.extraction_metadata['table_of_interest_sit'] = 'unique'
         else:
             max_word_inter_len = filtered_tables['word_inter_len'].max()
             second_max_word_inter_len = filtered_tables['word_inter_len'].nlargest(2).iloc[-1]
             
             if max_word_inter_len >= 1.3 * second_max_word_inter_len:
                 table_id = filtered_tables[filtered_tables['word_inter_len'] == max_word_inter_len].index[0]
-                self.flow_dic['table_of_interest_id'] = table_id
-                self.flow_dic['table_of_interest_sit'] = 'majority_of_word_inter_len'
+                self.extraction_metadata['table_of_interest_id'] = table_id
+                self.extraction_metadata['table_of_interest_sit'] = 'majority_of_word_inter_len'
             else:
-                self.flow_dic['self_term_re'] = 'multiple_tables_of_interest'
-                raise ExtractionError(self.flow_dic, self.df_output2, "Multiple tables of interest found")
+                self.extraction_metadata['self_term_re'] = 'multiple_tables_of_interest'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, "Multiple tables of interest found")
         
         if table_id is not None:
             print(f"Table ID set to: {table_id}")
@@ -215,7 +215,7 @@ class RepurchaseExtractor:
         other_dum = 0
         other_loc = None
         
-        self.flow_dic['num_other_sig_tables'] = len(other_table_indexes)
+        self.extraction_metadata['num_other_sig_tables'] = len(other_table_indexes)
         
         if len(other_table_indexes) == 0:
             print("No other significant table was found.")
@@ -225,11 +225,11 @@ class RepurchaseExtractor:
             if min_other_table_indexes > table_id:
                 other_id = min_other_table_indexes
             else:
-                self.flow_dic['self_term_re'] = 'multiple_other_sig_tables'
-                raise ExtractionError(self.flow_dic, self.df_output2, "Multiple other significant tables found")
+                self.extraction_metadata['self_term_re'] = 'multiple_other_sig_tables'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, "Multiple other significant tables found")
         else:
             other_id = other_table_indexes[0]
-            self.flow_dic['unique_other_sig_table_id'] = other_id
+            self.extraction_metadata['unique_other_sig_table_id'] = other_id
             other_dum = 1
             if other_id < table_id:
                 other_loc = 0
@@ -255,21 +255,21 @@ class RepurchaseExtractor:
                     other_table_end = other_table_start + len(table_html)
                 else:
                     print("No match found for the table in the HTML content.")
-                    self.flow_dic['self_term_re'] = 'start_match_of_sig_wasnt_found'
-                    raise ExtractionError(self.flow_dic, self.df_output2, "Could not locate other significant table")
+                    self.extraction_metadata['self_term_re'] = 'start_match_of_sig_wasnt_found'
+                    raise ExtractionError(self.extraction_metadata, self.repurchase_data, "Could not locate other significant table")
                     
             except Exception as e:
                 print("Error finding the table:", e)
-                self.flow_dic['error_term_re'] = "Error_finding_the_sig_table"
-                self.flow_dic['error_term_re_e'] = str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"Error finding significant table: {e}")
+                self.extraction_metadata['error_term_re'] = "Error_finding_the_sig_table"
+                self.extraction_metadata['error_term_re_e'] = str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"Error finding significant table: {e}")
             
             if other_table_start is not None and other_table_end is not None:
                 print(f"Start of the other table: {other_table_start}, End of the other table: {other_table_end}")
             else:
                 print("Failed to locate the other table in the document.")
-                self.flow_dic['self_term_re'] = 'failed_to_locate_sig_table'
-                raise ExtractionError(self.flow_dic, self.df_output2, "Failed to locate other significant table")
+                self.extraction_metadata['self_term_re'] = 'failed_to_locate_sig_table'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, "Failed to locate other significant table")
         
         # Remove other table if needed
         soup_org = soup
@@ -299,20 +299,20 @@ class RepurchaseExtractor:
                 table_end = table_start + len(table_html)
             else:
                 print("No match found for the table in the HTML content.")
-                self.flow_dic['self_term_re'] = 'start_match_of_table_wasnt_found'
-                raise ExtractionError(self.flow_dic, self.df_output2, "Could not locate main table")
+                self.extraction_metadata['self_term_re'] = 'start_match_of_table_wasnt_found'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, "Could not locate main table")
         except Exception as e:
             print("Error finding the table:", e)
-            self.flow_dic['error_term_re'] = "Error_finding_the_table"
-            self.flow_dic['error_term_re_e'] = str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"Error finding main table: {e}")
+            self.extraction_metadata['error_term_re'] = "Error_finding_the_table"
+            self.extraction_metadata['error_term_re_e'] = str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"Error finding main table: {e}")
         
         if table_start is not None and table_end is not None:
             print(f"Start of the table: {table_start}, End of the table: {table_end}")
         else:
             print("Failed to locate the table in the document.")
-            self.flow_dic['self_term_re'] = 'failed_to_locate_table'
-            raise ExtractionError(self.flow_dic, self.df_output2, "Failed to locate main table")
+            self.extraction_metadata['self_term_re'] = 'failed_to_locate_table'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, "Failed to locate main table")
         
         # Extract soup before and after table
         parser_label = 'html.parser'
@@ -372,51 +372,51 @@ class RepurchaseExtractor:
         # Check if all columns and rows are integers and reset index/columns if true
         df=reset_integer_index_and_columns(df)
         
-        self.flow_dic['df_st1_shape0']=df.shape[0]
-        self.flow_dic['df_st1_shape1']=df.shape[1]
+        self.extraction_metadata['df_st1_shape0']=df.shape[0]
+        self.extraction_metadata['df_st1_shape1']=df.shape[1]
         
         df_cop_in=df.copy()
 
         try:
             df=df.map(convert_to_string_if_not_nan)
         except Exception as e:
-            self.flow_dic['error_term_re']="convert_to_string_if_not_nan"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"convert_to_string_if_not_nan: {e}")
+            self.extraction_metadata['error_term_re']="convert_to_string_if_not_nan"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"convert_to_string_if_not_nan: {e}")
             
         try:
             df=df.map(unicode_text_cleaner)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="unicode_text_cleaner"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"unicode_text_cleaner: {e}")
+            self.extraction_metadata['error_term_re']="unicode_text_cleaner"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"unicode_text_cleaner: {e}")
         
         
         try:
             df=df.map(convert_and_parenthesize_superscripts)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="convert_and_parenthesize_superscripts"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"convert_and_parenthesize_superscripts: {e}")
+            self.extraction_metadata['error_term_re']="convert_and_parenthesize_superscripts"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"convert_and_parenthesize_superscripts: {e}")
         
         
         try:
             df=df.map(bracket_to_paranth)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="bracket_to_paranth"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"bracket_to_paranth: {e}")
+            self.extraction_metadata['error_term_re']="bracket_to_paranth"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"bracket_to_paranth: {e}")
         
         try:
             df=df.map(check_issuer_in_text)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="check_issuer_in_text"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"check_issuer_in_text: {e}")
+            self.extraction_metadata['error_term_re']="check_issuer_in_text"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"check_issuer_in_text: {e}")
         
         # Replace empty strings with NaN
         df.replace("", np.nan, inplace=True)
@@ -433,9 +433,9 @@ class RepurchaseExtractor:
             df=df.map(para_whitespace_stripper)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="para_whitespace_stripper"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"para_whitespace_stripper: {e}")
+            self.extraction_metadata['error_term_re']="para_whitespace_stripper"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"para_whitespace_stripper: {e}")
         
 
         
@@ -447,25 +447,25 @@ class RepurchaseExtractor:
             df=df.map(three_zero_to_thousand)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="three_zero_to_thousand"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"three_zero_to_thousand: {e}")
+            self.extraction_metadata['error_term_re']="three_zero_to_thousand"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"three_zero_to_thousand: {e}")
 
         try:
             
             df=df.map(dollar_sign_to_dollar_word)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="dollar_sign_to_dollar_word"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"dollar_sign_to_dollar_word: {e}")
+            self.extraction_metadata['error_term_re']="dollar_sign_to_dollar_word"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"dollar_sign_to_dollar_word: {e}")
 
         return df
 
     def _final_cleaning(self):
         """Apply unit conversions and clean up metadata rows"""
         # Get unit information from row -2
-        units = self.df_output2.loc[-2, [1, 2, 3, 4]]
+        units = self.repurchase_data.loc[-2, [1, 2, 3, 4]]
         
         # Apply unit conversions based on desired output units
         # Column 1 (total shares): convert to thousands
@@ -473,14 +473,14 @@ class RepurchaseExtractor:
             pass  # no conversion needed
         elif units[1] == 2:  # millions -> thousands (multiply by 1000)
             # Only convert numeric values, skip strings
-            numeric_mask = pd.to_numeric(self.df_output2[1], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 1] = self.df_output2.loc[numeric_mask, 1] * 1000
+            numeric_mask = pd.to_numeric(self.repurchase_data[1], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 1] = self.repurchase_data.loc[numeric_mask, 1] * 1000
         elif units[1] == 3:  # billions -> thousands (multiply by 1000000)
-            numeric_mask = pd.to_numeric(self.df_output2[1], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 1] = self.df_output2.loc[numeric_mask, 1] * 1000000
+            numeric_mask = pd.to_numeric(self.repurchase_data[1], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 1] = self.repurchase_data.loc[numeric_mask, 1] * 1000000
         elif units[1] == 0 or pd.isna(units[1]):  # no unit -> thousands (divide by 1000)
-            numeric_mask = pd.to_numeric(self.df_output2[1], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 1] = self.df_output2.loc[numeric_mask, 1] / 1000
+            numeric_mask = pd.to_numeric(self.repurchase_data[1], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 1] = self.repurchase_data.loc[numeric_mask, 1] / 1000
         
         # Column 2 (average price): keep as is (no unit conversion)
         # Average prices are usually reasonable numbers anyway
@@ -489,41 +489,41 @@ class RepurchaseExtractor:
         if units[3] == 1:  # already in thousands
             pass  # no conversion needed
         elif units[3] == 2:  # millions -> thousands (multiply by 1000)
-            numeric_mask = pd.to_numeric(self.df_output2[3], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 3] = self.df_output2.loc[numeric_mask, 3] * 1000
+            numeric_mask = pd.to_numeric(self.repurchase_data[3], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 3] = self.repurchase_data.loc[numeric_mask, 3] * 1000
         elif units[3] == 3:  # billions -> thousands (multiply by 1000000)
-            numeric_mask = pd.to_numeric(self.df_output2[3], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 3] = self.df_output2.loc[numeric_mask, 3] * 1000000
+            numeric_mask = pd.to_numeric(self.repurchase_data[3], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 3] = self.repurchase_data.loc[numeric_mask, 3] * 1000000
         elif units[3] == 0 or pd.isna(units[3]):  # no unit -> thousands (divide by 1000)
-            numeric_mask = pd.to_numeric(self.df_output2[3], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 3] = self.df_output2.loc[numeric_mask, 3] / 1000
+            numeric_mask = pd.to_numeric(self.repurchase_data[3], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 3] = self.repurchase_data.loc[numeric_mask, 3] / 1000
         
         # Column 4 (remaining value): convert to millions
         if units[4] == 0 or pd.isna(units[4]):  # no unit -> millions (divide by 1000000)
-            numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] / 1000000
+            numeric_mask = pd.to_numeric(self.repurchase_data[4], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 4] = self.repurchase_data.loc[numeric_mask, 4] / 1000000
         elif units[4] == 1:  # thousands -> millions (divide by 1000)
-            numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] / 1000
+            numeric_mask = pd.to_numeric(self.repurchase_data[4], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 4] = self.repurchase_data.loc[numeric_mask, 4] / 1000
         elif units[4] == 2:  # already in millions
             pass  # no conversion needed
         elif units[4] == 3:  # billions -> millions (multiply by 1000)
-            numeric_mask = pd.to_numeric(self.df_output2[4], errors='coerce').notna()
-            self.df_output2.loc[numeric_mask, 4] = self.df_output2.loc[numeric_mask, 4] * 1000
+            numeric_mask = pd.to_numeric(self.repurchase_data[4], errors='coerce').notna()
+            self.repurchase_data.loc[numeric_mask, 4] = self.repurchase_data.loc[numeric_mask, 4] * 1000
         
-        # Extract column headers from row 0 and store in flow_dic
+        # Extract column headers from row 0 and store in extraction_metadata
         meta_data = {
-            '0': self.df_output2.loc[0, 0],
-            '1': self.df_output2.loc[0, 1], 
-            '2': self.df_output2.loc[0, 2],
-            '3': self.df_output2.loc[0, 3],
-            '4': self.df_output2.loc[0, 4]
+            '0': self.repurchase_data.loc[0, 0],
+            '1': self.repurchase_data.loc[0, 1], 
+            '2': self.repurchase_data.loc[0, 2],
+            '3': self.repurchase_data.loc[0, 3],
+            '4': self.repurchase_data.loc[0, 4]
         }
-        self.flow_dic['meta_data'] = meta_data
+        self.extraction_metadata['meta_data'] = meta_data
         
         # Remove row 0 (header row) and units row (-2)
         # Keep -1 and -3 for later processing
-        self.df_output2 = self.df_output2.drop([0, -2])
+        self.repurchase_data = self.repurchase_data.drop([0, -2])
         
         # Rename columns to meaningful names
         column_mapping = {
@@ -533,47 +533,47 @@ class RepurchaseExtractor:
             3: 'prog_shares',   # Program shares purchased
             4: 'remaining_auth' # Remaining authorization
         }
-        self.df_output2 = self.df_output2.rename(columns=column_mapping)
+        self.repurchase_data = self.repurchase_data.rename(columns=column_mapping)
         
         # Extract dollar/number info from row -1 and create dummy columns
         dollar_columns = ['tot_shares', 'avg_price', 'prog_shares', 'remaining_auth']
         
         for col in dollar_columns:
             # Get the dollar indicator from row -1 (1 = dollar, 0 = number)
-            dollar_indicator = self.df_output2.loc[-1, col]
+            dollar_indicator = self.repurchase_data.loc[-1, col]
             
             # Create new column with _dollar suffix
             new_col_name = f"{col}_dollar"
             
             # Set dummy variable: 1 if dollar, 0 if number (or NaN if not applicable)
             if pd.notna(dollar_indicator):
-                self.df_output2[new_col_name] = int(dollar_indicator)
+                self.repurchase_data[new_col_name] = int(dollar_indicator)
             else:
-                self.df_output2[new_col_name] = 0  # Default to 0 if not applicable
+                self.repurchase_data[new_col_name] = 0  # Default to 0 if not applicable
         
         # Remove row -1 after extracting dollar/number info
-        self.df_output2 = self.df_output2.drop([-1])
+        self.repurchase_data = self.repurchase_data.drop([-1])
         
         # Remove row -3 (redundant metadata row)
-        self.df_output2 = self.df_output2.drop([-3])
+        self.repurchase_data = self.repurchase_data.drop([-3])
         
         # Fix date ranges for total rows (id == 4)
-        total_rows = self.df_output2['id'] == 4
+        total_rows = self.repurchase_data['id'] == 4
         if total_rows.any():
             # Get monthly rows (id == 1, 2, 3)
-            monthly_rows = self.df_output2['id'].isin([1, 2, 3])
+            monthly_rows = self.repurchase_data['id'].isin([1, 2, 3])
             
             if monthly_rows.any():
                 # Calculate earliest beg_date and latest end_date from monthly rows
-                earliest_beg_date = self.df_output2.loc[monthly_rows, 'beg_date'].min()
-                latest_end_date = self.df_output2.loc[monthly_rows, 'end_date'].max()
+                earliest_beg_date = self.repurchase_data.loc[monthly_rows, 'beg_date'].min()
+                latest_end_date = self.repurchase_data.loc[monthly_rows, 'end_date'].max()
                 
                 # Apply these dates to total rows
-                self.df_output2.loc[total_rows, 'beg_date'] = earliest_beg_date
-                self.df_output2.loc[total_rows, 'end_date'] = latest_end_date
+                self.repurchase_data.loc[total_rows, 'beg_date'] = earliest_beg_date
+                self.repurchase_data.loc[total_rows, 'end_date'] = latest_end_date
         
         # Remove the 'rank' column as it's redundant (just cumcount within id groups)
-        self.df_output2 = self.df_output2.drop(columns=['rank'])
+        self.repurchase_data = self.repurchase_data.drop(columns=['rank'])
         
         # Do NOT reset index - keep original indexing for future work
 
@@ -615,9 +615,9 @@ class RepurchaseExtractor:
             df_reduced=df.map(text_reducer)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="text_reducer"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"text_reducer: {e}")
+            self.extraction_metadata['error_term_re']="text_reducer"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"text_reducer: {e}")
 
         df_reduced.replace("", np.nan, inplace=True)
     
@@ -733,7 +733,7 @@ class RepurchaseExtractor:
             else:
                 print("No row has exactly four unique values.")
         
-        self.flow_dic['first_reduced_stat']=reduced_stat
+        self.extraction_metadata['first_reduced_stat']=reduced_stat
         
         if reduced_stat < 3:
             
@@ -876,11 +876,11 @@ class RepurchaseExtractor:
             
 
         
-        self.flow_dic['second_reduced_stat']=reduced_stat
+        self.extraction_metadata['second_reduced_stat']=reduced_stat
         
         if reduced_stat<3:
-            self.flow_dic['self_term_re']='reduced_less_than_3'
-            raise ExtractionError(self.flow_dic, self.df_output2, f"reduced_less_than_3")
+            self.extraction_metadata['self_term_re']='reduced_less_than_3'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"reduced_less_than_3")
 
         
         if reduced_stat==3:
@@ -1085,9 +1085,9 @@ class RepurchaseExtractor:
             df=df.map(para_whitespace_stripper)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="para_whitespace_stripper"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"para_whitespace_stripper: {e}")
+            self.extraction_metadata['error_term_re']="para_whitespace_stripper"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"para_whitespace_stripper: {e}")
 
         # now let's drop duplicate columns:
 
@@ -1280,9 +1280,9 @@ class RepurchaseExtractor:
             df_health_parenth = df.map(check_healthy_parentheses)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="check_healthy_parentheses"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"check_healthy_parentheses: {e}") 
+            self.extraction_metadata['error_term_re']="check_healthy_parentheses"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"check_healthy_parentheses: {e}") 
         
         # Calculate the minimum value in df_health_parenth
         min_value = df_health_parenth.min().min()  # This traverses the entire DataFrame
@@ -1290,8 +1290,8 @@ class RepurchaseExtractor:
         # Check for unhealthy parentheses
         if min_value == -1:
             print("Unhealthy parenthesis is found.")
-            self.flow_dic['self_term_re']='Unhealthy_parenthesis_found'
-            raise ExtractionError(self.flow_dic, self.df_output2, f"Unhealthy_parenthesis_found")
+            self.extraction_metadata['self_term_re']='Unhealthy_parenthesis_found'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"Unhealthy_parenthesis_found")
         else:
             print("No unhealthy parenthesis found.")
         
@@ -1304,9 +1304,9 @@ class RepurchaseExtractor:
             df_reduced2=df.map(text_reducer2)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="text_reducer2"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"text_reducer2: {e}") 
+            self.extraction_metadata['error_term_re']="text_reducer2"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"text_reducer2: {e}") 
         
         
         
@@ -1318,9 +1318,9 @@ class RepurchaseExtractor:
             df_reduced2_words=df_reduced2.map(white_word_maker)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="white_word_maker"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"white_word_maker: {e}")
+            self.extraction_metadata['error_term_re']="white_word_maker"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"white_word_maker: {e}")
         
 
         # Initialize df_col_roles with the same number of columns as df_reduced2_words and two rows
@@ -1423,9 +1423,9 @@ class RepurchaseExtractor:
             cand_footnotes_in_text_after = extract_potential_footnotes(self.soup_after)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="extract_potential_footnotes"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"extract_potential_footnotes: {e}")
+            self.extraction_metadata['error_term_re']="extract_potential_footnotes"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"extract_potential_footnotes: {e}")
 
         try:
             
@@ -1433,9 +1433,9 @@ class RepurchaseExtractor:
             df.iloc[0, 1:] = df.iloc[0, 1:].apply(lambda x: out_paranth_footnote_into_paranth(x, cand_footnotes_in_text_after))
         
         except Exception as e:
-            self.flow_dic['error_term_re']="out_paranth_footnote_into_paranth"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"out_paranth_footnote_into_paranth: {e}")
+            self.extraction_metadata['error_term_re']="out_paranth_footnote_into_paranth"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"out_paranth_footnote_into_paranth: {e}")
 
         try:
             
@@ -1443,9 +1443,9 @@ class RepurchaseExtractor:
             df_footnotes = df.applymap(lambda x: table_footnote_extractor(x, cand_footnotes_in_text_after))
         
         except Exception as e:
-            self.flow_dic['error_term_re']="table_footnote_extractor"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"table_footnote_extractor: {e}")
+            self.extraction_metadata['error_term_re']="table_footnote_extractor"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"table_footnote_extractor: {e}")
         
 
         # Define the broken row indicators
@@ -1479,9 +1479,9 @@ class RepurchaseExtractor:
             
         
         except Exception as e:
-            self.flow_dic['error_term_re']="ends_text_strip"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"ends_text_strip: {e}")
+            self.extraction_metadata['error_term_re']="ends_text_strip"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"ends_text_strip: {e}")
         
 
         try:
@@ -1491,9 +1491,9 @@ class RepurchaseExtractor:
             df_words2 = df_lower.map(convert_to_pattern_words)
         
         except Exception as e:
-            self.flow_dic['error_term_re']="convert_to_pattern_words"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"convert_to_pattern_words: {e}")
+            self.extraction_metadata['error_term_re']="convert_to_pattern_words"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"convert_to_pattern_words: {e}")
         
 
         try:
@@ -1502,9 +1502,9 @@ class RepurchaseExtractor:
             df_patterns=df_lower.map(convert_to_pattern) 
         
         except Exception as e:
-            self.flow_dic['error_term_re']="convert_to_pattern_words"
-            self.flow_dic['error_term_re_e']=str(e)
-            raise ExtractionError(self.flow_dic, self.df_output2, f"convert_to_pattern:{e}")
+            self.extraction_metadata['error_term_re']="convert_to_pattern_words"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"convert_to_pattern:{e}")
     
 
         interval_special=0
@@ -1608,10 +1608,10 @@ class RepurchaseExtractor:
             selected_monthly_interval_rows = monthly_interval_rows[index_of_smallest_list]
             selected_monthly_interval_pattern = monthly_interval_patterns[index_of_smallest_list]
             
-        self.flow_dic['num_monthly_intervals']=  len(selected_monthly_interval_rows)  
+        self.extraction_metadata['num_monthly_intervals']=  len(selected_monthly_interval_rows)  
         if len(selected_monthly_interval_rows)!=3:
-            self.flow_dic['self_term_re']='not_3_monthly_intervals'
-            raise ExtractionError(self.flow_dic, self.df_output2, f"not_3_monthly_intervals")
+            self.extraction_metadata['self_term_re']='not_3_monthly_intervals'
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"not_3_monthly_intervals")
         
         
         
@@ -1713,9 +1713,9 @@ class RepurchaseExtractor:
 
     
         if tot_row is None:
-            self.flow_dic['tot_row_found']=0
+            self.extraction_metadata['tot_row_found']=0
         else:
-            self.flow_dic['tot_row_found']=1
+            self.extraction_metadata['tot_row_found']=1
         
         
         # Define the spans for the first, second, and third months.
@@ -2179,8 +2179,8 @@ class RepurchaseExtractor:
                         
                         
             if len(monthly_interval_dates_converted)!=3:
-                self.flow_dic['self_term_re']='monthly_interval_dates_converted_issue'
-                return (self.flow_dic,self.df_output2)
+                self.extraction_metadata['self_term_re']='monthly_interval_dates_converted_issue'
+                return (self.extraction_metadata,self.repurchase_data)
     
     
         
@@ -2423,8 +2423,8 @@ class RepurchaseExtractor:
                             
                             
             if len(monthly_interval_dates_converted)!=3:
-                self.flow_dic['self_term_re']='monthly_interval_dates_converted_issue'
-                raise ExtractionError(self.flow_dic, self.df_output2, f"monthly_interval_dates_converted_issue")
+                self.extraction_metadata['self_term_re']='monthly_interval_dates_converted_issue'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"monthly_interval_dates_converted_issue")
         
     
             
@@ -3035,9 +3035,9 @@ class RepurchaseExtractor:
         try:
             df_cut2=df_cut2.map(dollar_dropper)
         except Exception as e:
-            self.flow_dic['error_term_re']="dollar_dropper"
-            self.flow_dic['error_term_re_e']=str(e)
-            return (self.flow_dic,self.df_output2)
+            self.extraction_metadata['error_term_re']="dollar_dropper"
+            self.extraction_metadata['error_term_re_e']=str(e)
+            return (self.extraction_metadata,self.repurchase_data)
             
         unit_healthy=np.nan
         df_output=pd.DataFrame()
@@ -3045,8 +3045,8 @@ class RepurchaseExtractor:
         roles = df_identify.iloc[0, :5].to_dict()
         
         if len(roles)!=5:
-            self.flow_dic['self_term_re']='not_all_roles_found'
-            return (self.flow_dic,self.df_output2)
+            self.extraction_metadata['self_term_re']='not_all_roles_found'
+            return (self.extraction_metadata,self.repurchase_data)
         
         rename_dict = {int(k): v for k, v in roles.items()}
         
@@ -3280,8 +3280,8 @@ class RepurchaseExtractor:
                                     
 
         if df_output.shape[0]==0:
-            self.flow_dic['self_term_re']='df_output_not_created' 
-            raise ExtractionError(self.flow_dic, self.df_output2, f"df_output_not_created")
+            self.extraction_metadata['self_term_re']='df_output_not_created' 
+            raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"df_output_not_created")
         
             
         if df_output.shape[0]>0:
@@ -3335,9 +3335,9 @@ class RepurchaseExtractor:
             try:
                 df_output_pos_footnote=df_output.map(extract_single_digit_or_letter_in_parenth)
             except Exception as e:
-                self.flow_dic['error_term_re']="extract_single_digit_or_letter_in_parenth"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"extract_single_digit_or_letter_in_parenth: {e}")
+                self.extraction_metadata['error_term_re']="extract_single_digit_or_letter_in_parenth"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"extract_single_digit_or_letter_in_parenth: {e}")
             
             
             
@@ -3346,39 +3346,39 @@ class RepurchaseExtractor:
             try:
                 processed_subset = subset.applymap(single_digit_or_letter_in_parenth_remover)
             except Exception as e:
-                self.flow_dic['error_term_re']="single_digit_or_letter_in_parenth_remover"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"single_digit_or_letter_in_parenth_remover: {e}")
+                self.extraction_metadata['error_term_re']="single_digit_or_letter_in_parenth_remover"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"single_digit_or_letter_in_parenth_remover: {e}")
             
             try:
                 processed_subset = processed_subset.applymap(general_parenth_remover)
             except Exception as e:
-                self.flow_dic['error_term_re']="general_parenth_remover"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"general_parenth_remover: {e}")
+                self.extraction_metadata['error_term_re']="general_parenth_remover"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"general_parenth_remover: {e}")
             
             
             try:
                 processed_subset = processed_subset.applymap(unit_remover)
             except Exception as e:
-                self.flow_dic['error_term_re']="unit_remover"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"unit_remover: {e}")
+                self.extraction_metadata['error_term_re']="unit_remover"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"unit_remover: {e}")
             
             try:
                 processed_subset = processed_subset.applymap(star_remover)
             except Exception as e:
-                self.flow_dic['error_term_re']="star_remover"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"star_remover: {e}")
+                self.extraction_metadata['error_term_re']="star_remover"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"star_remover: {e}")
             
             
             try:
                 processed_subset = processed_subset.applymap(other_missing_creater)
             except Exception as e:
-                self.flow_dic['error_term_re']="other_missing_creater"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"other_missing_creater: {e}")
+                self.extraction_metadata['error_term_re']="other_missing_creater"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"other_missing_creater: {e}")
             
 
         
@@ -3386,23 +3386,23 @@ class RepurchaseExtractor:
             df_output.iloc[1:, 1:] = processed_subset
         
             try:
-                self.df_output2=df_output.map(convert_to_number)
+                self.repurchase_data=df_output.map(convert_to_number)
             except Exception as e:
-                self.flow_dic['error_term_re']="convert_to_number"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"convert_to_number: {e}")
+                self.extraction_metadata['error_term_re']="convert_to_number"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"convert_to_number: {e}")
             
             
-            subset = self.df_output2.iloc[1:, 1:]  
+            subset = self.repurchase_data.iloc[1:, 1:]  
             try:
                 processed_subset = subset.applymap(inner_cell_health_checker)
             except Exception as e:
-                self.flow_dic['error_term_re']="inner_cell_health_checker"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"inner_cell_health_checker: {e}")
+                self.extraction_metadata['error_term_re']="inner_cell_health_checker"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"inner_cell_health_checker: {e}")
             
             all_inner_cells_are_healthy = 1 if processed_subset.all().all() else 0
-            self.flow_dic['inner_cell_health']=all_inner_cells_are_healthy
+            self.extraction_metadata['inner_cell_health']=all_inner_cells_are_healthy
             l=list(df_unit_source_stat['error'])
             ll=[len(x) for x in l]
             s=set(ll)
@@ -3415,18 +3415,18 @@ class RepurchaseExtractor:
             else:
                 unit_healthy=0
             
-            self.flow_dic['unit_source']=unit_source
-            self.flow_dic['unit_healthy']=unit_healthy
+            self.extraction_metadata['unit_source']=unit_source
+            self.extraction_metadata['unit_healthy']=unit_healthy
             
             
             if unit_healthy==0:
-                self.flow_dic['self_term_re']='unhealthy_unit'
-                raise ExtractionError(self.flow_dic, self.df_output2, f"unhealthy_unit")
+                self.extraction_metadata['self_term_re']='unhealthy_unit'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"unhealthy_unit")
             if all_inner_cells_are_healthy==0:
-                self.flow_dic['self_term_re']='unhealthy_inner_cell'
-                raise ExtractionError(self.flow_dic, self.df_output2, f"unhealthy_inner_cell")
+                self.extraction_metadata['self_term_re']='unhealthy_inner_cell'
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"unhealthy_inner_cell")
                 
-            new_row = pd.Series(np.nan, index=self.df_output2.columns)
+            new_row = pd.Series(np.nan, index=self.repurchase_data.columns)
             for col, role in roles.items():
                 if role == 'period':
                     new_row[col] = 0
@@ -3439,7 +3439,7 @@ class RepurchaseExtractor:
                 elif role == 'remain':
                     new_row[col] = 4
                 
-                self.df_output2.loc[-3] = new_row
+                self.repurchase_data.loc[-3] = new_row
             
 
         
@@ -3448,8 +3448,8 @@ class RepurchaseExtractor:
     def extract(self):
         """Main extraction method - orchestrates the entire process"""
         try:
-            self.flow_dic['self_term_re'] = np.nan
-            self.flow_dic['error_term_re_e'] = np.nan
+            self.extraction_metadata['self_term_re'] = np.nan
+            self.extraction_metadata['error_term_re_e'] = np.nan
 
             # Fetch HTML content and period data
             self._fetch_html_and_period_data()
@@ -3465,10 +3465,10 @@ class RepurchaseExtractor:
 
         except Exception as e:
             # Handle unexpected errors - only if no specific error was already set
-            if pd.isna(self.flow_dic.get('error_term_re', np.nan)) and pd.isna(self.flow_dic.get('self_term_re', np.nan)):
-                self.flow_dic['error_term_re']="general"
-                self.flow_dic['error_term_re_e']=str(e)
-                raise ExtractionError(self.flow_dic, self.df_output2, f"general: {e}")
+            if pd.isna(self.extraction_metadata.get('error_term_re', np.nan)) and pd.isna(self.extraction_metadata.get('self_term_re', np.nan)):
+                self.extraction_metadata['error_term_re']="general"
+                self.extraction_metadata['error_term_re_e']=str(e)
+                raise ExtractionError(self.extraction_metadata, self.repurchase_data, f"general: {e}")
 
             
     
