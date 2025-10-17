@@ -40,5 +40,19 @@ outputs/
 # Test pickle files (for examination only)
 *.pkl
 
+# Showcase example data files (generated, not screenshots)
+showcase_examples/*/*.pkl
+showcase_examples/*/*.json
+showcase_examples/*/*.txt
+showcase_examples/*/showcase.md
+showcase_examples/populate_example.py
+showcase_examples/README.md
+
+# Keep only screenshots in showcase examples
+!showcase_examples/*/*.png
+
+# Empty examples folder
+examples/
+
 # Internal development files
 roadmap.md
