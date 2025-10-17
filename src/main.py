@@ -27,7 +27,7 @@ import os
 
 import copy 
 
-from utils import *
+from .utils import *
 
 from dotenv import load_dotenv
 load_dotenv()
