@@ -39,17 +39,20 @@ outputs/
 
 # Test pickle files (for examination only)
 *.pkl
+# But keep showcase example pickle files (for users to examine)
+!showcase_examples/*/repurchase_data.pkl
 
-# Showcase example data files (generated, not screenshots)
-showcase_examples/*/*.pkl
-showcase_examples/*/*.json
-showcase_examples/*/*.txt
+# Showcase example helper files (not needed in repo)
+showcase_examples/*/extraction_metadata.json
 showcase_examples/*/showcase.md
 showcase_examples/populate_example.py
 showcase_examples/README.md
 
-# Keep only screenshots in showcase examples
-!showcase_examples/*/*.png
+# Keep these showcase files (useful for users):
+# - Screenshots (referenced in README)
+# - url.txt (so users can verify examples)
+# - soup_before.txt and soup_after.txt (show raw extracted context)
+# - repurchase_data.pkl (show actual output data - exception above)
 
 # Empty examples folder
 examples/
