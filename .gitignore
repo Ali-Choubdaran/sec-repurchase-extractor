@@ -37,5 +37,8 @@ env/
 test_outputs/
 outputs/
 
+# Test pickle files (for examination only)
+*.pkl
+
 # Internal development files
 roadmap.md
